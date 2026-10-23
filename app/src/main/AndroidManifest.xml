@@ -6,6 +6,9 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
     <queries>
         <!-- Query all launchable apps for App Drawer -->
         <intent>
@@ -36,7 +39,15 @@
             <data android:scheme="https" />
         </intent>
 
+        <!-- Essential Apps requested for Home Customization -->
+        <package android:name="com.google.android.apps.maps" />
         <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.instagram.android" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="com.microsoft.teams" />
+        <package android:name="com.google.android.gm" />
         <package android:name="com.android.chrome" />
         <package android:name="com.samsung.android.dialer" />
         <package android:name="com.samsung.android.messaging" />
@@ -68,6 +79,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Notification Listener Service for rolling notification section -->
+        <service
+            android:name=".S25NotificationService"
+            android:exported="true"
+            android:label="S25 Minimal Notification Service"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>
