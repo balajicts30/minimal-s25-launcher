@@ -2325,7 +2325,7 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
 
             val cursor = context.contentResolver.query(
                 uri,
-                arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, CalendarContract.Instances.ACCOUNT_NAME),
+                arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, "account_name"),
                 null,
                 null,
                 "${CalendarContract.Instances.BEGIN} ASC LIMIT 4"
@@ -2333,10 +2333,14 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
 
             val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
             cursor?.use {
+                val titleIdx = it.getColumnIndex(CalendarContract.Instances.TITLE)
+                val beginIdx = it.getColumnIndex(CalendarContract.Instances.BEGIN)
+                val accountIdx = it.getColumnIndex("account_name")
+
                 while (it.moveToNext()) {
-                    val title = it.getString(0) ?: "Meeting"
-                    val begin = it.getLong(1)
-                    val account = it.getString(2) ?: ""
+                    val title = if (titleIdx >= 0) it.getString(titleIdx) ?: "Meeting" else "Meeting"
+                    val begin = if (beginIdx >= 0) it.getLong(beginIdx) else System.currentTimeMillis()
+                    val account = if (accountIdx >= 0) it.getString(accountIdx) ?: "" else ""
 
                     val isTeams = account.contains("microsoft", ignoreCase = true) ||
                             account.contains("teams", ignoreCase = true) ||
