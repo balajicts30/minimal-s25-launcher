@@ -84,8 +84,6 @@ import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -373,6 +371,7 @@ fun MinimalS25LauncherScreen() {
     // Refresh notification access status
     LaunchedEffect(isSettingsOpen) {
         isNotificationAccessGranted = S25NotificationService.isNotificationAccessGranted(context)
+        agendaList = loadAgendaAndMissedCalls(context)
     }
 
     // Clock ticker
@@ -466,15 +465,15 @@ fun MinimalS25LauncherScreen() {
                     }
                 }
         ) {
-            // Main Scrollable True-AMOLED Home Screen (No gray card boxes)
+            // Main True-AMOLED Home Screen
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 22.dp, start = 20.dp, end = 20.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+                    .padding(top = 22.dp, start = 18.dp, end = 18.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
-                // Persistent Minimal Top Status Bar: Battery + Live Internet Speed + Icon-Only Controls
+                // Persistent Top Status Bar: Battery + Live Internet Speed + Icon-Only Controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -483,7 +482,7 @@ fun MinimalS25LauncherScreen() {
                     // Left: Battery & Internet Speed
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         // Battery
                         Row(
@@ -529,12 +528,12 @@ fun MinimalS25LauncherScreen() {
                     // Right: Icon-only buttons for Arrange and Settings (NO TEXT)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Arrange Icon Button
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(if (isArrangeMode) Color(0xFF0F1E33) else Color.Transparent)
                                 .border(
@@ -549,14 +548,14 @@ fun MinimalS25LauncherScreen() {
                                 imageVector = Icons.Rounded.SwapVert,
                                 contentDescription = "Arrange Layout",
                                 tint = if (isArrangeMode) Color(0xFF00E5FF) else Color(0xFF888888),
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(17.dp)
                             )
                         }
 
                         // Settings Icon Button
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(Color.Transparent)
                                 .border(1.dp, Color(0xFF262626), CircleShape)
@@ -567,7 +566,7 @@ fun MinimalS25LauncherScreen() {
                                 imageVector = Icons.Rounded.Settings,
                                 contentDescription = "Settings",
                                 tint = Color(0xFF888888),
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -632,7 +631,7 @@ fun MinimalS25LauncherScreen() {
                                 Text(
                                     text = timeString,
                                     color = Color.White,
-                                    fontSize = (62 * fontScale).sp,
+                                    fontSize = (60 * fontScale).sp,
                                     fontFamily = activeFont,
                                     fontWeight = FontWeight.ExtraLight,
                                     letterSpacing = (-2).sp
@@ -704,7 +703,7 @@ fun MinimalS25LauncherScreen() {
                                     fontFamily = activeFont,
                                     letterSpacing = 1.4.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 14.dp)
+                                    modifier = Modifier.padding(bottom = 10.dp)
                                 )
 
                                 val activeApps = AVAILABLE_HOME_APPS.filter { it.id in selectedAppIds }
@@ -714,7 +713,7 @@ fun MinimalS25LauncherScreen() {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
+                                            .padding(vertical = 4.dp),
                                         horizontalArrangement = Arrangement.SpaceAround,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -784,7 +783,7 @@ fun MinimalS25LauncherScreen() {
                                             color = Color(0xFF444444),
                                             fontSize = (11 * fontScale).sp,
                                             fontFamily = activeFont,
-                                            modifier = Modifier.padding(vertical = 6.dp)
+                                            modifier = Modifier.padding(vertical = 4.dp)
                                         )
                                     } else {
                                         LazyRow(
@@ -834,7 +833,7 @@ fun MinimalS25LauncherScreen() {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "AGENDA & MEETINGS",
+                                            text = "UPCOMING MEETINGS & CALLS",
                                             color = Color(0xFF555555),
                                             fontSize = (11 * fontScale).sp,
                                             fontFamily = activeFont,
@@ -844,15 +843,16 @@ fun MinimalS25LauncherScreen() {
 
                                         if (agendaList.isNotEmpty()) {
                                             Text(
-                                                text = "${agendaList.size} UPCOMING",
-                                                color = Color(0xFF444444),
+                                                text = "${agendaList.size} ITEMS",
+                                                color = Color(0xFF00E5FF),
                                                 fontSize = (10 * fontScale).sp,
-                                                fontFamily = activeFont
+                                                fontFamily = activeFont,
+                                                fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
 
                                     if (agendaList.isEmpty()) {
                                         // Clean Minimal Zero-Fake State
@@ -860,26 +860,26 @@ fun MinimalS25LauncherScreen() {
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .border(1.dp, Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+                                                .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
                                                 .padding(14.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
                                                 text = "No upcoming meetings scheduled",
-                                                color = Color(0xFF777777),
+                                                color = Color(0xFF888888),
                                                 fontSize = (12 * fontScale).sp,
                                                 fontFamily = activeFont
                                             )
                                             Text(
-                                                text = "Teams Work Profile, Personal Teams & Gmail synced",
-                                                color = Color(0xFF444444),
+                                                text = "Teams Work Profile, MS Teams & Gmail accounts connected",
+                                                color = Color(0xFF555555),
                                                 fontSize = (10 * fontScale).sp,
                                                 fontFamily = activeFont
                                             )
                                             Row(
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                modifier = Modifier.padding(top = 4.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.padding(top = 6.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -898,6 +898,15 @@ fun MinimalS25LauncherScreen() {
                                                         .padding(horizontal = 10.dp, vertical = 5.dp)
                                                 ) {
                                                     Text("Open Gmail", color = Color(0xFFFF3366), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                                        .clickable { agendaList = loadAgendaAndMissedCalls(context) }
+                                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                ) {
+                                                    Text("Refresh ↻", color = Color(0xFF00E5FF), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
                                                 }
                                             }
                                         }
@@ -1169,7 +1178,7 @@ private fun SectionReorderBar(
     }
 }
 
-// ---------------- NEON GLOW APP ICON (PURE AMOLED) ----------------
+// ---------------- NEON GLOW APP ICON (SLEEK, COMPACT & UNTRIMMED) ----------------
 
 @Composable
 private fun MonochromeAppItem(
@@ -1180,51 +1189,47 @@ private fun MonochromeAppItem(
 ) {
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick
             )
-            .padding(horizontal = 6.dp, vertical = 6.dp),
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(54.dp)
+                .size(44.dp)
                 .drawBehind {
-                    // Outer radiant neon aura
+                    // Contained subtle neon halo (does not bleed out or get clipped)
                     drawCircle(
-                        color = app.neonColor.copy(alpha = 0.20f),
-                        radius = size.minDimension * 0.70f
-                    )
-                    // Inner luminous neon ring
-                    drawCircle(
-                        color = app.neonColor.copy(alpha = 0.38f),
-                        radius = size.minDimension * 0.54f
+                        color = app.neonColor.copy(alpha = 0.16f),
+                        radius = size.minDimension * 0.58f
                     )
                 }
                 .clip(CircleShape)
                 .background(Color.Black)
-                .border(1.5.dp, app.neonColor.copy(alpha = 0.90f), CircleShape),
+                .border(1.2.dp, app.neonColor.copy(alpha = 0.85f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = app.icon,
                 contentDescription = app.label,
                 tint = app.neonColor,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(7.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
         Text(
             text = app.label,
             color = Color(0xFFD4D4D4),
-            fontSize = (11 * fontScale).sp,
+            fontSize = (10 * fontScale).sp,
             fontFamily = fontFamily,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1242,28 +1247,25 @@ private fun RollingNotificationCard(
     Row(
         modifier = Modifier
             .width(230.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Color.Black)
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(32.dp)
-                .drawBehind {
-                    drawCircle(color = Color(0xFF00E5FF).copy(alpha = 0.22f), radius = size.minDimension * 0.65f)
-                }
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(Color.Black)
-                .border(1.2.dp, Color(0xFF00E5FF), CircleShape),
+                .border(1.dp, Color(0xFF00E5FF), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = notif.appName.take(1).uppercase(Locale.getDefault()),
                 color = Color(0xFF00E5FF),
-                fontSize = (12 * fontScale).sp,
+                fontSize = (11 * fontScale).sp,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold
             )
@@ -1317,6 +1319,8 @@ private fun RollingNotificationCard(
     }
 }
 
+// ---------------- CRYSTAL-CLEAR AGENDA ROW (TEAMS & GMAIL) ----------------
+
 @Composable
 private fun MinimalAgendaRow(
     item: AgendaItem,
@@ -1325,74 +1329,100 @@ private fun MinimalAgendaRow(
     onClick: () -> Unit
 ) {
     val (badgeColor, badgeText) = when (item.type) {
-        AgendaType.TEAMS_WORK -> Color(0xFF38BDF8) to "Teams Work"
-        AgendaType.TEAMS_PERSONAL -> Color(0xFF818CF8) to "MS Teams"
-        AgendaType.GMAIL_PERSONAL -> Color(0xFFFF5252) to "Gmail"
-        AgendaType.MISSED_CALL -> Color(0xFFFF1744) to "Missed Call"
+        AgendaType.TEAMS_WORK -> Color(0xFF00E5FF) to "TEAMS WORK"
+        AgendaType.TEAMS_PERSONAL -> Color(0xFF818CF8) to "MS TEAMS"
+        AgendaType.GMAIL_PERSONAL -> Color(0xFFFF5252) to "GMAIL"
+        AgendaType.MISSED_CALL -> Color(0xFFFF1744) to "MISSED CALL"
     }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(Color.Black)
-            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // Top Row: Time & Badge
         Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = item.timeLabel,
-                color = Color(0xFFAAAAAA),
+                color = if (item.type == AgendaType.MISSED_CALL) Color(0xFFFF5252) else Color(0xFF00E5FF),
                 fontSize = (11 * fontScale).sp,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold
             )
 
-            Column {
+            // Tag Badge with Neon Outline
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black)
+                    .border(1.dp, badgeColor, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
                 Text(
-                    text = item.title,
-                    color = Color.White,
-                    fontSize = (13 * fontScale).sp,
+                    text = badgeText,
+                    color = badgeColor,
+                    fontSize = (9 * fontScale).sp,
                     fontFamily = fontFamily,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontWeight = FontWeight.Bold
                 )
-                if (item.subtitle.isNotBlank()) {
-                    Text(
-                        text = item.subtitle,
-                        color = Color(0xFF666666),
-                        fontSize = (10 * fontScale).sp,
-                        fontFamily = fontFamily,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
         }
 
-        // Source Tag Badge with Neon Glow Outline
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.Black)
-                .border(1.dp, badgeColor, RoundedCornerShape(4.dp))
-                .padding(horizontal = 7.dp, vertical = 3.dp)
+        // Meeting Title (Full, unclipped, up to 2 lines)
+        Text(
+            text = item.title,
+            color = Color.White,
+            fontSize = (14 * fontScale).sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        // Subtitle & Action hint
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = badgeText,
-                color = badgeColor,
-                fontSize = (10 * fontScale).sp,
-                fontFamily = fontFamily,
-                fontWeight = FontWeight.SemiBold
-            )
+            if (item.subtitle.isNotBlank()) {
+                Text(
+                    text = item.subtitle,
+                    color = Color(0xFF777777),
+                    fontSize = (11 * fontScale).sp,
+                    fontFamily = fontFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+
+            if (item.targetIntent != null) {
+                Text(
+                    text = "TAP TO JOIN ↗",
+                    color = Color(0xFF00E5FF),
+                    fontSize = (10 * fontScale).sp,
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            } else if (item.type == AgendaType.MISSED_CALL) {
+                Text(
+                    text = "TAP TO DIAL 📞",
+                    color = Color(0xFFFF5252),
+                    fontSize = (10 * fontScale).sp,
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -2052,7 +2082,36 @@ private fun computeTodayScreenTime(context: Context): String {
     }
 }
 
-// ---------------- REAL AGENDA (TEAMS WORK PROFILE, PERSONAL TEAMS & GMAIL) ----------------
+// ---------------- TIME FORMATTER FOR CRYSTAL CLEAR AGENDAS ----------------
+
+private fun formatMeetingTime(beginMs: Long, endMs: Long): String {
+    val now = Calendar.getInstance()
+    val eventCal = Calendar.getInstance().apply { timeInMillis = beginMs }
+
+    val isToday = now.get(Calendar.YEAR) == eventCal.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) == eventCal.get(Calendar.DAY_OF_YEAR)
+
+    val isTomorrow = now.get(Calendar.YEAR) == eventCal.get(Calendar.YEAR) &&
+            now.get(Calendar.DAY_OF_YEAR) + 1 == eventCal.get(Calendar.DAY_OF_YEAR)
+
+    val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+    val dateFmt = SimpleDateFormat("EEE, MMM d", Locale.getDefault())
+
+    val datePrefix = when {
+        isToday -> "TODAY"
+        isTomorrow -> "TOMORROW"
+        else -> dateFmt.format(Date(beginMs)).uppercase(Locale.getDefault())
+    }
+
+    val startTime = timeFmt.format(Date(beginMs))
+    val endTime = if (endMs > beginMs && (endMs - beginMs) < 24 * 3600_000L) {
+        " - ${timeFmt.format(Date(endMs))}"
+    } else ""
+
+    return "$datePrefix • $startTime$endTime"
+}
+
+// ---------------- ROBUST AGENDA RESOLVER (WORK TEAMS, PERSONAL TEAMS & GMAIL) ----------------
 
 private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
     val result = mutableListOf<AgendaItem>()
@@ -2079,9 +2138,9 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
                     result.add(
                         AgendaItem(
                             id = "call_$dateMs",
-                            timeLabel = "📞 Missed",
+                            timeLabel = "MISSED CALL • $timeStr",
                             title = titleName,
-                            subtitle = "Missed call • $timeStr",
+                            subtitle = "Tap to call back (${number ?: "Unknown"})",
                             type = AgendaType.MISSED_CALL,
                             targetIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
                         )
@@ -2095,10 +2154,40 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
     // 2. Query Calendar: Both Personal Profile & Enterprise / Work Profile (Teams & Gmail)
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
         val startWindow = System.currentTimeMillis() - 3600_000L // from 1 hour ago
-        val endWindow = System.currentTimeMillis() + (48L * 3600_000L) // up to 48 hours ahead
+        val endWindow = System.currentTimeMillis() + (72L * 3600_000L) // up to 72 hours ahead
 
-        val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
-        val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
+        // Map calendarId -> (accountName, accountType, displayName)
+        val calendarMeta = mutableMapOf<Long, Triple<String, String, String>>()
+        try {
+            val calCursor = context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(
+                    CalendarContract.Calendars._ID,
+                    CalendarContract.Calendars.ACCOUNT_NAME,
+                    CalendarContract.Calendars.ACCOUNT_TYPE,
+                    CalendarContract.Calendars.CALENDAR_DISPLAY_NAME
+                ),
+                null,
+                null,
+                null
+            )
+            calCursor?.use {
+                val idIdx = it.getColumnIndex(CalendarContract.Calendars._ID)
+                val nameIdx = it.getColumnIndex(CalendarContract.Calendars.ACCOUNT_NAME)
+                val typeIdx = it.getColumnIndex(CalendarContract.Calendars.ACCOUNT_TYPE)
+                val dispIdx = it.getColumnIndex(CalendarContract.Calendars.CALENDAR_DISPLAY_NAME)
+                while (it.moveToNext()) {
+                    val id = it.getLong(idIdx)
+                    val name = if (nameIdx >= 0) it.getString(nameIdx) ?: "" else ""
+                    val type = if (typeIdx >= 0) it.getString(typeIdx) ?: "" else ""
+                    val disp = if (dispIdx >= 0) it.getString(dispIdx) ?: "" else ""
+                    calendarMeta[id] = Triple(name, type, disp)
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        val seenEventIds = mutableSetOf<String>()
 
         val queryCalendarUri = { uri: Uri, isEnterprise: Boolean ->
             try {
@@ -2110,9 +2199,11 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
                 val projection = arrayOf(
                     CalendarContract.Instances.TITLE,
                     CalendarContract.Instances.BEGIN,
-                    "account_name",
-                    "description",
-                    "eventLocation"
+                    CalendarContract.Instances.END,
+                    CalendarContract.Instances.CALENDAR_ID,
+                    CalendarContract.Instances.EVENT_LOCATION,
+                    CalendarContract.Instances.DESCRIPTION,
+                    CalendarContract.Instances.ORGANIZER
                 )
 
                 val cursor = context.contentResolver.query(
@@ -2120,35 +2211,53 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
                     projection,
                     null,
                     null,
-                    "${CalendarContract.Instances.BEGIN} ASC LIMIT 6"
+                    "${CalendarContract.Instances.BEGIN} ASC LIMIT 10"
                 )
 
                 cursor?.use {
                     val titleIdx = it.getColumnIndex(CalendarContract.Instances.TITLE)
                     val beginIdx = it.getColumnIndex(CalendarContract.Instances.BEGIN)
-                    val accountIdx = it.getColumnIndex("account_name")
-                    val descIdx = it.getColumnIndex("description")
-                    val locIdx = it.getColumnIndex("eventLocation")
+                    val endIdx = it.getColumnIndex(CalendarContract.Instances.END)
+                    val calIdIdx = it.getColumnIndex(CalendarContract.Instances.CALENDAR_ID)
+                    val locIdx = it.getColumnIndex(CalendarContract.Instances.EVENT_LOCATION)
+                    val descIdx = it.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
+                    val orgIdx = it.getColumnIndex(CalendarContract.Instances.ORGANIZER)
 
                     while (it.moveToNext()) {
                         val title = if (titleIdx >= 0) it.getString(titleIdx) ?: "Meeting" else "Meeting"
                         val begin = if (beginIdx >= 0) it.getLong(beginIdx) else System.currentTimeMillis()
-                        val account = if (accountIdx >= 0) it.getString(accountIdx) ?: "" else ""
-                        val desc = if (descIdx >= 0) it.getString(descIdx) ?: "" else ""
+                        val end = if (endIdx >= 0) it.getLong(endIdx) else begin + 3600_000L
+                        val calId = if (calIdIdx >= 0) it.getLong(calIdIdx) else -1L
                         val loc = if (locIdx >= 0) it.getString(locIdx) ?: "" else ""
+                        val desc = if (descIdx >= 0) it.getString(descIdx) ?: "" else ""
+                        val org = if (orgIdx >= 0) it.getString(orgIdx) ?: "" else ""
 
-                        val isTeams = account.contains("microsoft", ignoreCase = true) ||
-                                account.contains("teams", ignoreCase = true) ||
-                                account.contains("outlook", ignoreCase = true) ||
-                                account.contains("live.com", ignoreCase = true) ||
+                        val eventKey = "$title-$begin"
+                        if (eventKey in seenEventIds) continue
+                        seenEventIds.add(eventKey)
+
+                        val (accName, accType, calDisp) = calendarMeta[calId] ?: Triple("", "", "")
+
+                        val isTeams = accType.contains("microsoft", ignoreCase = true) ||
+                                accType.contains("teams", ignoreCase = true) ||
+                                accType.contains("office", ignoreCase = true) ||
+                                accType.contains("workaccount", ignoreCase = true) ||
+                                accName.contains("microsoft", ignoreCase = true) ||
+                                accName.contains("teams", ignoreCase = true) ||
+                                accName.contains("outlook", ignoreCase = true) ||
+                                calDisp.contains("teams", ignoreCase = true) ||
+                                calDisp.contains("microsoft", ignoreCase = true) ||
                                 desc.contains("teams.microsoft.com", ignoreCase = true) ||
-                                loc.contains("teams.microsoft.com", ignoreCase = true)
+                                loc.contains("teams.microsoft.com", ignoreCase = true) ||
+                                org.contains("teams", ignoreCase = true)
 
                         val isWork = isEnterprise ||
-                                account.contains("work", ignoreCase = true) ||
-                                account.contains("corp", ignoreCase = true) ||
-                                account.contains("company", ignoreCase = true) ||
-                                account.contains("office365", ignoreCase = true)
+                                accType.contains("workaccount", ignoreCase = true) ||
+                                accType.contains("corporate", ignoreCase = true) ||
+                                accName.contains("work", ignoreCase = true) ||
+                                accName.contains("corp", ignoreCase = true) ||
+                                accName.contains("company", ignoreCase = true) ||
+                                accName.contains("office365", ignoreCase = true)
 
                         val type = when {
                             isTeams && isWork -> AgendaType.TEAMS_WORK
@@ -2167,13 +2276,21 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
                             }
                         }
 
-                        val timeString = "${dayFmt.format(Date(begin))} ${timeFmt.format(Date(begin))}"
+                        val timeString = formatMeetingTime(begin, end)
 
                         val subtitleText = when (type) {
-                            AgendaType.TEAMS_WORK -> "Teams Work Profile • ${account.ifBlank { "Corporate" }}"
-                            AgendaType.TEAMS_PERSONAL -> "MS Teams • ${account.ifBlank { "Personal" }}"
-                            AgendaType.GMAIL_PERSONAL -> "Gmail • ${account.ifBlank { "Google Calendar" }}"
-                            else -> account
+                            AgendaType.TEAMS_WORK -> {
+                                val label = if (accName.isNotBlank()) accName else if (calDisp.isNotBlank()) calDisp else "Corporate Account"
+                                if (targetIntent != null) "$label • Teams call link ready" else label
+                            }
+                            AgendaType.TEAMS_PERSONAL -> {
+                                val label = if (accName.isNotBlank()) accName else "Microsoft Teams"
+                                if (targetIntent != null) "$label • Teams call link ready" else label
+                            }
+                            AgendaType.GMAIL_PERSONAL -> {
+                                if (accName.isNotBlank()) accName else if (calDisp.isNotBlank()) calDisp else "Google Calendar"
+                            }
+                            else -> accName
                         }
 
                         result.add(
@@ -2192,18 +2309,103 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
             }
         }
 
-        // Query Personal Profile Calendar Instances
+        // 1. Query Personal Profile Calendar Instances
         queryCalendarUri(CalendarContract.Instances.CONTENT_URI, false)
 
-        // Query Work Profile Calendar Instances (API 29+ Android Enterprise cross-profile calendar)
+        // 2. Query Work Profile Calendar Instances (API 29+ Android Enterprise cross-profile calendar)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 queryCalendarUri(CalendarContract.Instances.ENTERPRISE_CONTENT_URI, true)
             } catch (_: Exception) {
             }
         }
+
+        // 3. Also query CalendarContract.Events if Instances returned 0 events (catches events directly on Samsung OneUI)
+        if (result.count { it.type != AgendaType.MISSED_CALL } == 0) {
+            try {
+                val eventsCursor = context.contentResolver.query(
+                    CalendarContract.Events.CONTENT_URI,
+                    arrayOf(
+                        CalendarContract.Events._ID,
+                        CalendarContract.Events.TITLE,
+                        CalendarContract.Events.DTSTART,
+                        CalendarContract.Events.DTEND,
+                        CalendarContract.Events.CALENDAR_ID,
+                        CalendarContract.Events.EVENT_LOCATION,
+                        CalendarContract.Events.DESCRIPTION
+                    ),
+                    "${CalendarContract.Events.DTSTART} >= ? AND ${CalendarContract.Events.DTSTART} <= ? AND ${CalendarContract.Events.DELETED} = 0",
+                    arrayOf(startWindow.toString(), endWindow.toString()),
+                    "${CalendarContract.Events.DTSTART} ASC LIMIT 6"
+                )
+                eventsCursor?.use {
+                    val titleIdx = it.getColumnIndex(CalendarContract.Events.TITLE)
+                    val startIdx = it.getColumnIndex(CalendarContract.Events.DTSTART)
+                    val endIdx = it.getColumnIndex(CalendarContract.Events.DTEND)
+                    val calIdIdx = it.getColumnIndex(CalendarContract.Events.CALENDAR_ID)
+                    val locIdx = it.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+                    val descIdx = it.getColumnIndex(CalendarContract.Events.DESCRIPTION)
+
+                    while (it.moveToNext()) {
+                        val title = if (titleIdx >= 0) it.getString(titleIdx) ?: "Meeting" else "Meeting"
+                        val begin = if (startIdx >= 0) it.getLong(startIdx) else System.currentTimeMillis()
+                        val end = if (endIdx >= 0) it.getLong(endIdx) else begin + 3600_000L
+                        val calId = if (calIdIdx >= 0) it.getLong(calIdIdx) else -1L
+                        val loc = if (locIdx >= 0) it.getString(locIdx) ?: "" else ""
+                        val desc = if (descIdx >= 0) it.getString(descIdx) ?: "" else ""
+
+                        val eventKey = "$title-$begin"
+                        if (eventKey in seenEventIds) continue
+                        seenEventIds.add(eventKey)
+
+                        val (accName, accType, calDisp) = calendarMeta[calId] ?: Triple("", "", "")
+                        val isTeams = accType.contains("microsoft", ignoreCase = true) ||
+                                accType.contains("teams", ignoreCase = true) ||
+                                accType.contains("office", ignoreCase = true) ||
+                                accName.contains("microsoft", ignoreCase = true) ||
+                                accName.contains("teams", ignoreCase = true) ||
+                                desc.contains("teams.microsoft.com", ignoreCase = true) ||
+                                loc.contains("teams.microsoft.com", ignoreCase = true)
+
+                        val isWork = accType.contains("workaccount", ignoreCase = true) ||
+                                accName.contains("work", ignoreCase = true) ||
+                                accName.contains("corp", ignoreCase = true)
+
+                        val type = when {
+                            isTeams && isWork -> AgendaType.TEAMS_WORK
+                            isTeams -> AgendaType.TEAMS_PERSONAL
+                            else -> AgendaType.GMAIL_PERSONAL
+                        }
+
+                        var targetIntent: Intent? = null
+                        val teamsUrlRegex = Regex("""(https://teams\.microsoft\.com/l/meetup-join/[^\s"']+)""")
+                        val match = teamsUrlRegex.find("$desc $loc")
+                        if (match != null) {
+                            try {
+                                targetIntent = Intent(Intent.ACTION_VIEW, Uri.parse(match.value))
+                            } catch (_: Exception) {}
+                        }
+
+                        val timeString = formatMeetingTime(begin, end)
+                        val subtitleText = if (accName.isNotBlank()) accName else if (calDisp.isNotBlank()) calDisp else "Calendar"
+
+                        result.add(
+                            AgendaItem(
+                                id = "ev_$begin",
+                                timeLabel = timeString,
+                                title = title,
+                                subtitle = subtitleText,
+                                type = type,
+                                targetIntent = targetIntent
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
     }
 
-    // Sort: missed calls first, then meetings chronologically (NO FAKE DATA FALLBACK)
+    // Sort: missed calls first, then meetings chronologically
     return result.sortedWith(compareBy({ it.type != AgendaType.MISSED_CALL }, { it.id }))
 }

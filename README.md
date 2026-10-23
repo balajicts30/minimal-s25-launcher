@@ -4,40 +4,34 @@ An ultra-clean, battery-efficient Kotlin Jetpack Compose Android launcher engine
 
 ![S25 Minimal Launcher Preview](preview.png)
 
-## What's New: True Fullscreen AMOLED, Neon Glow & Enterprise Teams Sync
+## What's New: Compact Untrimmed Icons & Crystal-Clear Agenda
 
-### 1. Pure AMOLED Fullscreen (Hidden Status Bar & Notification Drop)
-- Immersive edge-to-edge layout hiding the system status bar and notification shade pull-down.
-- True pitch-black (`#000000`) background across 100% of the display. Heavy gray background card slabs have been removed so only text, icons, and glowing badges appear.
+### 1. Compact Untrimmed Neon Icons (44dp)
+- **Reduced Sizing**: Reduced icon containers from 54dp to **44dp** with **20dp** vector glyphs.
+- **Contained Subtle Neon Halo**: Reduced glow radius to `0.58x` with soft alpha (`0.16`), keeping the luminous glow contained within bounds so it never trims or bleeds against adjacent items.
+- **Unclipped Container**: Removed outer rounded corner clipping on the parent column so icons render perfectly circular and clean.
+- **Comfortable 4-Column Spacing**: Provides ample breathing room across all AMOLED screen widths.
 
-### 2. Radiant Neon Glow App Icons
-- Multi-layered atmospheric radial neon glow rendered around every circular icon matching its authentic brand palette:
-  - **WhatsApp**: Neon Emerald Green (`#25D366`)
-  - **Instagram**: Cyber Neon Pink (`#FF1493`)
-  - **Telegram**: Electric Sky Cyan (`#00E5FF`)
-  - **Maps**: Neon Spring Green (`#10B981`)
-  - **Phone**: Neon Bright Green (`#39FF14`)
-  - **Messages**: Sapphire Blue (`#3B82F6`)
-  - **Camera**: Coral Sunset (`#FF5252`)
-  - **Browser**: Electric Amber Yellow (`#FFD600`)
-  - **Teams**: Neon Indigo (`#818CF8`)
-  - **Gmail**: Crimson Red (`#FF3366`)
-  - **Photos**: Neon Orange (`#FF9100`)
-
-### 3. Real Agenda Sync: Work Profile Teams, Personal Teams & Gmail (Zero Mock Data)
-- **Work Profile / Enterprise Teams**: Cross-profile integration using Android Enterprise `CalendarContract.Instances.ENTERPRISE_CONTENT_URI` (API 29+) to query corporate meetings directly from Samsung Knox Work Profile.
-- **Personal Profile Teams & Gmail**: Standard `CalendarContract.Instances.CONTENT_URI` sync for personal Outlook / Teams / Google accounts.
-- **Deep-Link Meeting Launcher**: Automatically detects and extracts `teams.microsoft.com/l/meetup-join` URLs from event descriptions/locations so tapping a meeting immediately launches the Teams call.
-- **Clear Provider Tags**:
-  - `[TEAMS WORK]`: Cyan badge for Work Profile meetings.
+### 2. Crystal-Clear Meetings (Teams Work Profile, MS Teams & Gmail)
+- **Multi-Source Calendar Metadata Resolution**: Pre-queries `CalendarContract.Calendars` for `account_name`, `account_type`, and `calendar_displayName`. This accurately detects corporate work emails (even when they don't contain the word "microsoft" in the domain) alongside Google accounts.
+- **Dual Profile & Fallback Engine**: Queries:
+  1. `CalendarContract.Instances.CONTENT_URI` (Personal Profile)
+  2. `CalendarContract.Instances.ENTERPRISE_CONTENT_URI` (API 29+ Samsung Knox Work Profile)
+  3. `CalendarContract.Events.CONTENT_URI` fallback (catches direct Samsung OneUI synchronized events)
+- **High-Clarity Time Formatting**: Displays exact status: `TODAY • 10:30 AM - 11:30 AM`, `TOMORROW • 02:00 PM`, `MON, OCT 26 • 09:00 AM`.
+- **Unclipped Full Title**: Meeting names display across up to 2 lines without truncation.
+- **Teams Deep-Link Detection**: Automatically identifies `teams.microsoft.com/l/meetup-join` URLs in descriptions/locations with a 1-tap `TAP TO JOIN ↗` shortcut.
+- **Provider Tags**:
+  - `[TEAMS WORK]`: Cyan badge for Work Profile corporate meetings.
   - `[MS TEAMS]`: Indigo badge for Personal Profile Teams calls.
-  - `[GMAIL]`: Coral red badge for Google Calendar events.
-  - `[MISSED CALL]`: Crimson badge with 1-tap call-back.
-- **Zero Fake Data**: All mock/placeholder demo entries have been completely eradicated. When no meetings are pending, an elegant minimal status is shown with 1-tap `[Open Teams]` and `[Open Gmail]` shortcuts.
+  - `[GMAIL]`: Coral red badge for Google Calendar meetings.
+  - `[MISSED CALL]`: Crimson badge with 1-tap dial back.
+- **Zero Fake Data**: Fallback demo data has been completely removed. When no meetings are scheduled, an empty state provides 1-tap `[Open Teams]`, `[Open Gmail]`, and `[Refresh ↻]` buttons.
 
-### 4. Live Internet Speedometer & Clean Icon-Only Top Controls
-- **Real-Time Speedometer**: Samples `TrafficStats.getTotalRxBytes()` every 1.5 seconds, dynamically displaying download speed (`↓ 3.4 MB/s`, `↓ 240 KB/s`) in the header next to battery status.
-- **Icon-Only Header Buttons**: Removed text words "Arrange" and "Customize". Only sleek, circular icon buttons are retained for layout reordering (`Icons.Rounded.SwapVert`) and settings (`Icons.Rounded.Settings`).
+### 3. Pure Fullscreen AMOLED & Live Internet Speed
+- **Hidden Status Bar & Notification Drop**: Full-screen immersion via `WindowInsetsControllerCompat.hide(Type.statusBars())`.
+- **Live Internet Speedometer**: Real-time `TrafficStats` download speed (e.g. `↓ 3.4 MB/s`, `↓ 240 KB/s`) in the header next to battery status.
+- **Icon-Only Header Controls**: Minimal circular buttons for layout reordering (`Icons.Rounded.SwapVert`) and settings (`Icons.Rounded.Settings`).
 
 ---
 
@@ -45,14 +39,12 @@ An ultra-clean, battery-efficient Kotlin Jetpack Compose Android launcher engine
 
 ### Adjustable Home Screen Layout (Pull Sections Up / Down)
 - Tap the **Arrange (`⇅`)** icon button in the top header to enter Arrange Mode.
-- Each section provides clickable **`[▲ UP]`** and **`[▼ DOWN]`** buttons to immediately swap sections into your preferred position.
+- Each section provides clickable **`[▲ UP]`** and **`[▼ DOWN]`** buttons to swap section order.
 - Quick Presets in Settings: `Default`, `Agenda First`, `Apps First`.
-- Layout state persists across reboots via `SharedPreferences`.
 
 ### Typography Customization
 - **4 Font Styles**: Monospace, Sans-Serif, Serif, and Cursive.
 - **4 Font Size Scales**: Compact (85%), Standard (100%), Large (115%), Extra Large (130%).
-- Real-time preview inside settings.
 
 ### Intuitive Gestures
 - **Swipe UP**: Slides up the full alphabetical All-Apps drawer with live search.
