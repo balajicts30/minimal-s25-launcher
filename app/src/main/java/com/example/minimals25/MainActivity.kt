@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.net.TrafficStats
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
@@ -46,7 +47,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.HourglassEmpty
@@ -79,7 +80,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapVert
-import androidx.compose.material.icons.rounded.TextFields
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -100,6 +101,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -113,6 +115,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -172,9 +177,10 @@ enum class HomeSection(val id: String, val title: String, val shortTitle: String
 // ---------------- Data Models ----------------
 
 enum class AgendaType {
-    TEAMS_WORK,
-    GMAIL_PERSONAL,
-    MISSED_CALL
+    TEAMS_WORK,       // Microsoft Teams on Work Profile (Enterprise)
+    TEAMS_PERSONAL,   // Microsoft Teams on Personal Profile
+    GMAIL_PERSONAL,   // Gmail / Google Calendar
+    MISSED_CALL       // Missed Calls
 }
 
 data class AgendaItem(
@@ -191,6 +197,7 @@ data class AppChoice(
     val label: String,
     val icon: ImageVector,
     val candidatePackages: List<String>,
+    val neonColor: Color,
     val fallbackIntentAction: String? = null
 )
 
@@ -201,17 +208,17 @@ data class AppEntry(
 )
 
 val AVAILABLE_HOME_APPS = listOf(
-    AppChoice("whatsapp", "WhatsApp", Icons.Rounded.ChatBubbleOutline, listOf("com.whatsapp", "com.whatsapp.w4b")),
-    AppChoice("instagram", "Instagram", Icons.Rounded.PhotoCamera, listOf("com.instagram.android")),
-    AppChoice("telegram", "Telegram", Icons.Rounded.Send, listOf("org.telegram.messenger", "org.telegram.messenger.web")),
-    AppChoice("maps", "Maps", Icons.Rounded.Map, listOf("com.google.android.apps.maps")),
-    AppChoice("phone", "Phone", Icons.Rounded.Phone, listOf("com.samsung.android.dialer", "com.google.android.dialer"), Intent.ACTION_DIAL),
-    AppChoice("messages", "Messages", Icons.Rounded.Email, listOf("com.samsung.android.messaging", "com.google.android.apps.messaging")),
-    AppChoice("camera", "Camera", Icons.Rounded.CameraAlt, listOf("com.sec.android.app.camera", "com.google.android.GoogleCamera"), MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
-    AppChoice("chrome", "Browser", Icons.Rounded.Language, listOf("com.android.chrome", "com.sec.android.app.sbrowser")),
-    AppChoice("teams", "Teams", Icons.Rounded.Groups, listOf("com.microsoft.teams")),
-    AppChoice("gmail", "Gmail", Icons.Rounded.Email, listOf("com.google.android.gm")),
-    AppChoice("photos", "Photos", Icons.Rounded.PhotoLibrary, listOf("com.sec.android.gallery3d", "com.google.android.apps.photos"))
+    AppChoice("whatsapp", "WhatsApp", Icons.Rounded.ChatBubbleOutline, listOf("com.whatsapp", "com.whatsapp.w4b"), Color(0xFF25D366)),
+    AppChoice("instagram", "Instagram", Icons.Rounded.PhotoCamera, listOf("com.instagram.android"), Color(0xFFFF1493)),
+    AppChoice("telegram", "Telegram", Icons.Rounded.Send, listOf("org.telegram.messenger", "org.telegram.messenger.web"), Color(0xFF00E5FF)),
+    AppChoice("maps", "Maps", Icons.Rounded.Map, listOf("com.google.android.apps.maps"), Color(0xFF10B981)),
+    AppChoice("phone", "Phone", Icons.Rounded.Phone, listOf("com.samsung.android.dialer", "com.google.android.dialer"), Color(0xFF39FF14), Intent.ACTION_DIAL),
+    AppChoice("messages", "Messages", Icons.Rounded.Email, listOf("com.samsung.android.messaging", "com.google.android.apps.messaging"), Color(0xFF3B82F6)),
+    AppChoice("camera", "Camera", Icons.Rounded.CameraAlt, listOf("com.sec.android.app.camera", "com.google.android.GoogleCamera"), Color(0xFFFF5252), MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
+    AppChoice("chrome", "Browser", Icons.Rounded.Language, listOf("com.android.chrome", "com.sec.android.app.sbrowser"), Color(0xFFFFD600)),
+    AppChoice("teams", "Teams", Icons.Rounded.Groups, listOf("com.microsoft.teams"), Color(0xFF818CF8)),
+    AppChoice("gmail", "Gmail", Icons.Rounded.Email, listOf("com.google.android.gm"), Color(0xFFFF3366)),
+    AppChoice("photos", "Photos", Icons.Rounded.PhotoLibrary, listOf("com.sec.android.gallery3d", "com.google.android.apps.photos"), Color(0xFFFF9100))
 )
 
 val DEFAULT_SELECTED_APP_IDS = setOf("maps", "whatsapp", "instagram", "telegram", "phone", "messages")
@@ -219,11 +226,18 @@ val DEFAULT_SELECTED_APP_IDS = setOf("maps", "whatsapp", "instagram", "telegram"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Make Home Screen Full Screen & Hide Notification Drop (Status Bar)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insetsController.hide(WindowInsetsCompat.Type.statusBars())
+
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
                     background = Color.Black,
-                    surface = Color(0xFF090909),
+                    surface = Color.Black,
                     onBackground = Color.White,
                     onSurface = Color.White
                 )
@@ -231,6 +245,13 @@ class MainActivity : ComponentActivity() {
                 MinimalS25LauncherScreen()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-enforce full screen immersive mode
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        insetsController.hide(WindowInsetsCompat.Type.statusBars())
     }
 }
 
@@ -280,6 +301,9 @@ fun MinimalS25LauncherScreen() {
     var batteryPct by remember { mutableIntStateOf(100) }
     var isCharging by remember { mutableStateOf(false) }
 
+    // Live Internet Speed
+    var netSpeedText by remember { mutableStateOf("↓ 0 KB/s") }
+
     // Screen Time Today
     var screenTimeText by remember { mutableStateOf("Calculating...") }
     var hasUsagePermission by remember { mutableStateOf(checkUsageStatsPermission(context)) }
@@ -321,6 +345,29 @@ fun MinimalS25LauncherScreen() {
     LaunchedEffect(Unit) {
         installedApps = loadInstalledApps(context)
         agendaList = loadAgendaAndMissedCalls(context)
+    }
+
+    // Live Network Speed Ticker via TrafficStats
+    LaunchedEffect(Unit) {
+        var lastRx = TrafficStats.getTotalRxBytes()
+        var lastTime = System.currentTimeMillis()
+        while (true) {
+            delay(1500L)
+            val nowRx = TrafficStats.getTotalRxBytes()
+            val nowTime = System.currentTimeMillis()
+            val timeDiff = (nowTime - lastTime) / 1000f
+            if (timeDiff > 0 && lastRx != TrafficStats.UNSUPPORTED.toLong() && nowRx != TrafficStats.UNSUPPORTED.toLong()) {
+                val speedBytesPerSec = ((nowRx - lastRx) / timeDiff).toLong()
+                val b = if (speedBytesPerSec < 0) 0L else speedBytesPerSec
+                netSpeedText = when {
+                    b >= 1024 * 1024 -> String.format(Locale.US, "↓ %.1f MB/s", b / (1024f * 1024f))
+                    b >= 1024 -> "↓ ${b / 1024} KB/s"
+                    else -> "↓ ${b} B/s"
+                }
+            }
+            lastRx = nowRx
+            lastTime = nowTime
+        }
     }
 
     // Refresh notification access status
@@ -394,7 +441,6 @@ fun MinimalS25LauncherScreen() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .pointerInput(isDrawerOpen || isSettingsOpen || isArrangeMode) {
                     if (!isDrawerOpen && !isSettingsOpen && !isArrangeMode) {
                         detectDragGestures(
@@ -420,96 +466,108 @@ fun MinimalS25LauncherScreen() {
                     }
                 }
         ) {
-            // Main Scrollable Adjustable Home Screen
+            // Main Scrollable True-AMOLED Home Screen (No gray card boxes)
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                    .padding(top = 22.dp, start = 20.dp, end = 20.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Persistent Top Status Bar: Battery + Arrange & Settings Buttons
+                // Persistent Minimal Top Status Bar: Battery + Live Internet Speed + Icon-Only Controls
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Battery indicator
+                    // Left: Battery & Internet Speed
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.BatteryChargingFull,
-                            contentDescription = "Battery",
-                            tint = if (isCharging) Color(0xFF39FF14) else Color(0xFF9E9E9E),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "$batteryPct%${if (isCharging) " ⚡" else ""}",
-                            color = Color(0xFFBDBDBD),
-                            fontSize = (13 * fontScale).sp,
-                            fontFamily = activeFont,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    // Top Action Controls: Arrange Layout & Settings
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Quick Arrange Toggle (Pull sections up/down on home screen)
+                        // Battery
                         Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isArrangeMode) Color(0xFF1E293B) else Color.Transparent)
-                                .border(
-                                    1.dp,
-                                    if (isArrangeMode) Color(0xFF38BDF8) else Color(0xFF262626),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .clickable { isArrangeMode = !isArrangeMode }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.BatteryChargingFull,
+                                contentDescription = "Battery",
+                                tint = if (isCharging) Color(0xFF39FF14) else Color(0xFF9E9E9E),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = "$batteryPct%${if (isCharging) " ⚡" else ""}",
+                                color = Color(0xFFCCCCCC),
+                                fontSize = (12 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        // Live Internet Speed
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Wifi,
+                                contentDescription = "Internet Speed",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = netSpeedText,
+                                color = Color(0xFF00E5FF),
+                                fontSize = (11 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Right: Icon-only buttons for Arrange and Settings (NO TEXT)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Arrange Icon Button
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (isArrangeMode) Color(0xFF0F1E33) else Color.Transparent)
+                                .border(
+                                    1.dp,
+                                    if (isArrangeMode) Color(0xFF00E5FF) else Color(0xFF262626),
+                                    CircleShape
+                                )
+                                .clickable { isArrangeMode = !isArrangeMode },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SwapVert,
                                 contentDescription = "Arrange Layout",
-                                tint = if (isArrangeMode) Color(0xFF38BDF8) else Color(0xFF888888),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = if (isArrangeMode) "Done" else "Arrange",
-                                color = if (isArrangeMode) Color(0xFF38BDF8) else Color(0xFF888888),
-                                fontSize = (11 * fontScale).sp,
-                                fontFamily = activeFont
+                                tint = if (isArrangeMode) Color(0xFF00E5FF) else Color(0xFF888888),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
 
-                        // Customize Button (Opens Full Settings Menu)
-                        Row(
+                        // Settings Icon Button
+                        Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF0F0F0F))
-                                .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
-                                .clickable { isSettingsOpen = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color.Transparent)
+                                .border(1.dp, Color(0xFF262626), CircleShape)
+                                .clickable { isSettingsOpen = true },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Customize",
-                                color = Color(0xFF888888),
-                                fontSize = (11 * fontScale).sp,
-                                fontFamily = activeFont
-                            )
                             Icon(
                                 imageVector = Icons.Rounded.Settings,
                                 contentDescription = "Settings",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(16.dp)
+                                tint = Color(0xFF888888),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }
@@ -520,46 +578,36 @@ fun MinimalS25LauncherScreen() {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF0D1D30))
-                            .border(1.dp, Color(0xFF38BDF8), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black)
+                            .border(1.dp, Color(0xFF00E5FF), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(
-                                text = "ARRANGE SECTIONS MODE",
-                                color = Color(0xFF38BDF8),
-                                fontSize = (12 * fontScale).sp,
-                                fontFamily = activeFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Tap UP or DOWN to pull sections into position",
-                                color = Color(0xFFB0C4DE),
-                                fontSize = (10 * fontScale).sp,
-                                fontFamily = activeFont
-                            )
-                        }
+                        Text(
+                            text = "PULL SECTIONS UP / DOWN",
+                            color = Color(0xFF00E5FF),
+                            fontSize = (11 * fontScale).sp,
+                            fontFamily = activeFont,
+                            fontWeight = FontWeight.Bold
+                        )
 
                         Text(
-                            text = "FINISH ✓",
-                            color = Color(0xFF38BDF8),
+                            text = "DONE ✓",
+                            color = Color(0xFF00E5FF),
                             fontSize = (11 * fontScale).sp,
                             fontFamily = activeFont,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF1E3A5F))
                                 .clickable { isArrangeMode = false }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .padding(4.dp)
                         )
                     }
                 }
 
                 // ========================================================
-                // DYNAMIC ADJUSTABLE SECTIONS (RENDERED IN USER ORDER)
+                // DYNAMIC ADJUSTABLE SECTIONS (RENDERED ON PURE AMOLED)
                 // ========================================================
                 sectionOrder.forEachIndexed { index, section ->
                     val canMoveUp = index > 0
@@ -584,29 +632,29 @@ fun MinimalS25LauncherScreen() {
                                 Text(
                                     text = timeString,
                                     color = Color.White,
-                                    fontSize = (58 * fontScale).sp,
+                                    fontSize = (62 * fontScale).sp,
                                     fontFamily = activeFont,
                                     fontWeight = FontWeight.ExtraLight,
-                                    letterSpacing = (-1.5).sp
+                                    letterSpacing = (-2).sp
                                 )
 
                                 Spacer(modifier = Modifier.height(2.dp))
 
                                 Text(
                                     text = dateString,
-                                    color = Color(0xFFAAAAAA),
-                                    fontSize = (15 * fontScale).sp,
+                                    color = Color(0xFF888888),
+                                    fontSize = (14 * fontScale).sp,
                                     fontFamily = activeFont,
                                     fontWeight = FontWeight.Normal
                                 )
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                // Screen time detox pill
+                                // Screen time detox pill (Pure AMOLED)
                                 Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(20.dp))
-                                        .background(Color(0xFF0F0F0F))
+                                        .background(Color.Black)
                                         .border(1.dp, Color(0xFF222222), RoundedCornerShape(20.dp))
                                         .clickable {
                                             if (!hasUsagePermission) {
@@ -614,19 +662,19 @@ fun MinimalS25LauncherScreen() {
                                                 hasUsagePermission = checkUsageStatsPermission(context)
                                             }
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.HourglassEmpty,
                                         contentDescription = "Screen Time",
-                                        tint = Color(0xFFB0B0B0),
-                                        modifier = Modifier.size(13.dp)
+                                        tint = Color(0xFF39FF14),
+                                        modifier = Modifier.size(12.dp)
                                     )
                                     Text(
                                         text = screenTimeText,
-                                        color = Color(0xFFB0B0B0),
+                                        color = Color(0xFFAAAAAA),
                                         fontSize = (11 * fontScale).sp,
                                         fontFamily = activeFont
                                     )
@@ -651,12 +699,12 @@ fun MinimalS25LauncherScreen() {
 
                                 Text(
                                     text = "FAVORITES",
-                                    color = Color(0xFF666666),
+                                    color = Color(0xFF555555),
                                     fontSize = (11 * fontScale).sp,
                                     fontFamily = activeFont,
                                     letterSpacing = 1.4.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 12.dp)
+                                    modifier = Modifier.padding(bottom = 14.dp)
                                 )
 
                                 val activeApps = AVAILABLE_HOME_APPS.filter { it.id in selectedAppIds }
@@ -666,7 +714,7 @@ fun MinimalS25LauncherScreen() {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 6.dp),
+                                            .padding(vertical = 8.dp),
                                         horizontalArrangement = Arrangement.SpaceAround,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -706,7 +754,7 @@ fun MinimalS25LauncherScreen() {
                                     ) {
                                         Text(
                                             text = "NOTIFICATIONS",
-                                            color = Color(0xFF666666),
+                                            color = Color(0xFF555555),
                                             fontSize = (11 * fontScale).sp,
                                             fontFamily = activeFont,
                                             letterSpacing = 1.4.sp,
@@ -716,7 +764,7 @@ fun MinimalS25LauncherScreen() {
                                         if (!isNotificationAccessGranted) {
                                             Text(
                                                 text = "Enable Access",
-                                                color = Color(0xFF38BDF8),
+                                                color = Color(0xFF00E5FF),
                                                 fontSize = (11 * fontScale).sp,
                                                 fontFamily = activeFont,
                                                 modifier = Modifier.clickable {
@@ -728,34 +776,36 @@ fun MinimalS25LauncherScreen() {
 
                                     Spacer(modifier = Modifier.height(10.dp))
 
-                                    val displayNotifs = if (incomingNotifications.isNotEmpty()) {
-                                        incomingNotifications
-                                    } else {
-                                        listOf(
-                                            S25NotificationItem("n1", "com.whatsapp", "WhatsApp", "David", "Hey, are we still meeting at 4 PM?", System.currentTimeMillis() - 120_000L),
-                                            S25NotificationItem("n2", "org.telegram.messenger", "Telegram", "Engineering Group", "New build artifacts are uploaded", System.currentTimeMillis() - 480_000L),
-                                            S25NotificationItem("n3", "com.instagram.android", "Instagram", "alex_photos", "shared a reel with you", System.currentTimeMillis() - 900_000L)
-                                        )
-                                    }
+                                    val displayNotifs = incomingNotifications
 
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        contentPadding = PaddingValues(vertical = 2.dp)
-                                    ) {
-                                        items(displayNotifs, key = { it.key }) { notif ->
-                                            RollingNotificationCard(
-                                                notif = notif,
-                                                fontFamily = activeFont,
-                                                fontScale = fontScale,
-                                                onClick = {
-                                                    try {
-                                                        notif.pendingIntent?.send()
-                                                    } catch (_: Exception) {
-                                                        val launchIntent = context.packageManager.getLaunchIntentForPackage(notif.packageName)
-                                                        if (launchIntent != null) context.startActivity(launchIntent)
+                                    if (displayNotifs.isEmpty()) {
+                                        Text(
+                                            text = "No new notifications",
+                                            color = Color(0xFF444444),
+                                            fontSize = (11 * fontScale).sp,
+                                            fontFamily = activeFont,
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+                                    } else {
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            contentPadding = PaddingValues(vertical = 2.dp)
+                                        ) {
+                                            items(displayNotifs, key = { it.key }) { notif ->
+                                                RollingNotificationCard(
+                                                    notif = notif,
+                                                    fontFamily = activeFont,
+                                                    fontScale = fontScale,
+                                                    onClick = {
+                                                        try {
+                                                            notif.pendingIntent?.send()
+                                                        } catch (_: Exception) {
+                                                            val launchIntent = context.packageManager.getLaunchIntentForPackage(notif.packageName)
+                                                            if (launchIntent != null) context.startActivity(launchIntent)
+                                                        }
                                                     }
-                                                }
-                                            )
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -784,45 +834,96 @@ fun MinimalS25LauncherScreen() {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "AGENDA & MISSED CALLS",
-                                            color = Color(0xFF666666),
+                                            text = "AGENDA & MEETINGS",
+                                            color = Color(0xFF555555),
                                             fontSize = (11 * fontScale).sp,
                                             fontFamily = activeFont,
                                             letterSpacing = 1.4.sp,
                                             fontWeight = FontWeight.Bold
                                         )
 
-                                        Text(
-                                            text = "${agendaList.size} ITEMS",
-                                            color = Color(0xFF444444),
-                                            fontSize = (10 * fontScale).sp,
-                                            fontFamily = activeFont
-                                        )
+                                        if (agendaList.isNotEmpty()) {
+                                            Text(
+                                                text = "${agendaList.size} UPCOMING",
+                                                color = Color(0xFF444444),
+                                                fontSize = (10 * fontScale).sp,
+                                                fontFamily = activeFont
+                                            )
+                                        }
                                     }
 
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.height(10.dp))
 
-                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        agendaList.forEach { item ->
-                                            MinimalAgendaRow(
-                                                item = item,
-                                                fontFamily = activeFont,
-                                                fontScale = fontScale,
-                                                onClick = {
-                                                    if (item.targetIntent != null) {
-                                                        try {
-                                                            context.startActivity(item.targetIntent)
-                                                        } catch (_: Exception) {
-                                                        }
-                                                    } else if (item.type == AgendaType.TEAMS_WORK) {
-                                                        launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "teams" })
-                                                    } else if (item.type == AgendaType.GMAIL_PERSONAL) {
-                                                        launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "gmail" })
-                                                    } else if (item.type == AgendaType.MISSED_CALL) {
-                                                        launchDialer(context)
-                                                    }
-                                                }
+                                    if (agendaList.isEmpty()) {
+                                        // Clean Minimal Zero-Fake State
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .border(1.dp, Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
+                                                .padding(14.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "No upcoming meetings scheduled",
+                                                color = Color(0xFF777777),
+                                                fontSize = (12 * fontScale).sp,
+                                                fontFamily = activeFont
                                             )
+                                            Text(
+                                                text = "Teams Work Profile, Personal Teams & Gmail synced",
+                                                color = Color(0xFF444444),
+                                                fontSize = (10 * fontScale).sp,
+                                                fontFamily = activeFont
+                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .border(1.dp, Color(0xFF818CF8).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                                        .clickable { launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "teams" }) }
+                                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                ) {
+                                                    Text("Open Teams", color = Color(0xFF818CF8), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .border(1.dp, Color(0xFFFF3366).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                                        .clickable { launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "gmail" }) }
+                                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                                ) {
+                                                    Text("Open Gmail", color = Color(0xFFFF3366), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            agendaList.forEach { item ->
+                                                MinimalAgendaRow(
+                                                    item = item,
+                                                    fontFamily = activeFont,
+                                                    fontScale = fontScale,
+                                                    onClick = {
+                                                        if (item.targetIntent != null) {
+                                                            try {
+                                                                context.startActivity(item.targetIntent)
+                                                            } catch (_: Exception) {
+                                                            }
+                                                        } else if (item.type == AgendaType.TEAMS_WORK || item.type == AgendaType.TEAMS_PERSONAL) {
+                                                            launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "teams" })
+                                                        } else if (item.type == AgendaType.GMAIL_PERSONAL) {
+                                                            launchAppChoice(context, AVAILABLE_HOME_APPS.first { it.id == "gmail" })
+                                                        } else if (item.type == AgendaType.MISSED_CALL) {
+                                                            launchDialer(context)
+                                                        }
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -848,12 +949,12 @@ fun MinimalS25LauncherScreen() {
                     Icon(
                         imageVector = Icons.Rounded.KeyboardArrowUp,
                         contentDescription = "Swipe up for apps",
-                        tint = Color(0xFF555555),
-                        modifier = Modifier.size(20.dp)
+                        tint = Color(0xFF444444),
+                        modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = "SWIPE UP FOR ALL APPS",
-                        color = Color(0xFF555555),
+                        color = Color(0xFF444444),
                         fontSize = (10 * fontScale).sp,
                         fontFamily = activeFont,
                         letterSpacing = 1.6.sp
@@ -966,9 +1067,9 @@ private fun SectionReorderBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF101C2B))
-            .border(1.dp, Color(0xFF2563EB).copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black)
+            .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -981,7 +1082,7 @@ private fun SectionReorderBar(
                 modifier = Modifier
                     .size(20.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF38BDF8)),
+                    .background(Color(0xFF00E5FF)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -994,7 +1095,7 @@ private fun SectionReorderBar(
             }
             Text(
                 text = section.shortTitle,
-                color = Color(0xFF93C5FD),
+                color = Color(0xFF00E5FF),
                 fontSize = 11.sp,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.SemiBold
@@ -1008,12 +1109,12 @@ private fun SectionReorderBar(
             // Pull UP button
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (canMoveUp) Color(0xFF1E293B) else Color(0xFF0F172A))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black)
                     .border(
                         1.dp,
-                        if (canMoveUp) Color(0xFF38BDF8) else Color(0xFF334155),
-                        RoundedCornerShape(6.dp)
+                        if (canMoveUp) Color(0xFF00E5FF) else Color(0xFF333333),
+                        RoundedCornerShape(4.dp)
                     )
                     .clickable(enabled = canMoveUp, onClick = onMoveUp)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1023,12 +1124,12 @@ private fun SectionReorderBar(
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowUp,
                     contentDescription = "Pull Up",
-                    tint = if (canMoveUp) Color(0xFF38BDF8) else Color(0xFF475569),
+                    tint = if (canMoveUp) Color(0xFF00E5FF) else Color(0xFF444444),
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     text = "UP",
-                    color = if (canMoveUp) Color.White else Color(0xFF475569),
+                    color = if (canMoveUp) Color.White else Color(0xFF444444),
                     fontSize = 10.sp,
                     fontFamily = fontFamily,
                     fontWeight = FontWeight.Bold
@@ -1038,12 +1139,12 @@ private fun SectionReorderBar(
             // Pull DOWN button
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (canMoveDown) Color(0xFF1E293B) else Color(0xFF0F172A))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.Black)
                     .border(
                         1.dp,
-                        if (canMoveDown) Color(0xFF38BDF8) else Color(0xFF334155),
-                        RoundedCornerShape(6.dp)
+                        if (canMoveDown) Color(0xFF00E5FF) else Color(0xFF333333),
+                        RoundedCornerShape(4.dp)
                     )
                     .clickable(enabled = canMoveDown, onClick = onMoveDown)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1053,12 +1154,12 @@ private fun SectionReorderBar(
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = "Pull Down",
-                    tint = if (canMoveDown) Color(0xFF38BDF8) else Color(0xFF475569),
+                    tint = if (canMoveDown) Color(0xFF00E5FF) else Color(0xFF444444),
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
                     text = "DOWN",
-                    color = if (canMoveDown) Color.White else Color(0xFF475569),
+                    color = if (canMoveDown) Color.White else Color(0xFF444444),
                     fontSize = 10.sp,
                     fontFamily = fontFamily,
                     fontWeight = FontWeight.Bold
@@ -1067,6 +1168,8 @@ private fun SectionReorderBar(
         }
     }
 }
+
+// ---------------- NEON GLOW APP ICON (PURE AMOLED) ----------------
 
 @Composable
 private fun MonochromeAppItem(
@@ -1078,31 +1181,47 @@ private fun MonochromeAppItem(
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick
+            )
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(54.dp)
+                .drawBehind {
+                    // Outer radiant neon aura
+                    drawCircle(
+                        color = app.neonColor.copy(alpha = 0.20f),
+                        radius = size.minDimension * 0.70f
+                    )
+                    // Inner luminous neon ring
+                    drawCircle(
+                        color = app.neonColor.copy(alpha = 0.38f),
+                        radius = size.minDimension * 0.54f
+                    )
+                }
                 .clip(CircleShape)
-                .background(Color(0xFF0E0E0E))
-                .border(1.dp, Color(0xFF262626), CircleShape),
+                .background(Color.Black)
+                .border(1.5.dp, app.neonColor.copy(alpha = 0.90f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = app.icon,
                 contentDescription = app.label,
-                tint = Color.White,
+                tint = app.neonColor,
                 modifier = Modifier.size(24.dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(7.dp))
 
         Text(
             text = app.label,
-            color = Color(0xFFE0E0E0),
+            color = Color(0xFFD4D4D4),
             fontSize = (11 * fontScale).sp,
             fontFamily = fontFamily,
             textAlign = TextAlign.Center
@@ -1123,25 +1242,28 @@ private fun RollingNotificationCard(
     Row(
         modifier = Modifier
             .width(230.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF0E0E0E))
-            .border(1.dp, Color(0xFF222222), RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black)
+            .border(1.dp, Color(0xFF222222), RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(12.dp),
+            .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(32.dp)
+                .drawBehind {
+                    drawCircle(color = Color(0xFF00E5FF).copy(alpha = 0.22f), radius = size.minDimension * 0.65f)
+                }
                 .clip(CircleShape)
-                .background(Color(0xFF181818))
-                .border(1.dp, Color(0xFF303030), CircleShape),
+                .background(Color.Black)
+                .border(1.2.dp, Color(0xFF00E5FF), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = notif.appName.take(1).uppercase(Locale.getDefault()),
-                color = Color.White,
-                fontSize = (13 * fontScale).sp,
+                color = Color(0xFF00E5FF),
+                fontSize = (12 * fontScale).sp,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold
             )
@@ -1157,7 +1279,7 @@ private fun RollingNotificationCard(
             ) {
                 Text(
                     text = notif.appName,
-                    color = Color(0xFF38BDF8),
+                    color = Color(0xFF00E5FF),
                     fontSize = (10 * fontScale).sp,
                     fontFamily = fontFamily,
                     fontWeight = FontWeight.SemiBold,
@@ -1166,7 +1288,7 @@ private fun RollingNotificationCard(
                 )
                 Text(
                     text = timeStr,
-                    color = Color(0xFF666666),
+                    color = Color(0xFF555555),
                     fontSize = (9 * fontScale).sp,
                     fontFamily = fontFamily
                 )
@@ -1185,7 +1307,7 @@ private fun RollingNotificationCard(
 
             Text(
                 text = if (notif.text.isNotBlank()) notif.text else notif.title,
-                color = Color(0xFF9E9E9E),
+                color = Color(0xFF888888),
                 fontSize = (11 * fontScale).sp,
                 fontFamily = fontFamily,
                 maxLines = 1,
@@ -1204,16 +1326,17 @@ private fun MinimalAgendaRow(
 ) {
     val (badgeColor, badgeText) = when (item.type) {
         AgendaType.TEAMS_WORK -> Color(0xFF38BDF8) to "Teams Work"
-        AgendaType.GMAIL_PERSONAL -> Color(0xFFFBBF24) to "Personal / Gmail"
-        AgendaType.MISSED_CALL -> Color(0xFFEF4444) to "Missed Call"
+        AgendaType.TEAMS_PERSONAL -> Color(0xFF818CF8) to "MS Teams"
+        AgendaType.GMAIL_PERSONAL -> Color(0xFFFF5252) to "Gmail"
+        AgendaType.MISSED_CALL -> Color(0xFFFF1744) to "Missed Call"
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Color(0xFF0C0C0C))
-            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black)
+            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1227,7 +1350,7 @@ private fun MinimalAgendaRow(
             Text(
                 text = item.timeLabel,
                 color = Color(0xFFAAAAAA),
-                fontSize = (12 * fontScale).sp,
+                fontSize = (11 * fontScale).sp,
                 fontFamily = fontFamily,
                 fontWeight = FontWeight.Bold
             )
@@ -1245,8 +1368,8 @@ private fun MinimalAgendaRow(
                 if (item.subtitle.isNotBlank()) {
                     Text(
                         text = item.subtitle,
-                        color = Color(0xFF757575),
-                        fontSize = (11 * fontScale).sp,
+                        color = Color(0xFF666666),
+                        fontSize = (10 * fontScale).sp,
                         fontFamily = fontFamily,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1255,12 +1378,12 @@ private fun MinimalAgendaRow(
             }
         }
 
-        // Source Tag Badge
+        // Source Tag Badge with Neon Glow Outline
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(badgeColor.copy(alpha = 0.15f))
-                .border(1.dp, badgeColor.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.Black)
+                .border(1.dp, badgeColor, RoundedCornerShape(4.dp))
                 .padding(horizontal = 7.dp, vertical = 3.dp)
         ) {
             Text(
@@ -1304,8 +1427,7 @@ private fun HomeScreenSettingsMenu(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .statusBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1320,101 +1442,69 @@ private fun HomeScreenSettingsMenu(
             ) {
                 Column {
                     Text(
-                        text = "HOME SETTINGS",
+                        text = "LAUNCHER SETTINGS",
                         color = Color.White,
-                        fontSize = (18 * fontScale).sp,
+                        fontSize = (17 * fontScale).sp,
                         fontFamily = activeFont,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Customize layout, typography, apps & agenda",
-                        color = Color(0xFF777777),
-                        fontSize = (12 * fontScale).sp,
+                        text = "Customize layout, typography & accounts",
+                        color = Color(0xFF666666),
+                        fontSize = (11 * fontScale).sp,
                         fontFamily = activeFont
                     )
                 }
 
                 Text(
                     text = "DONE",
-                    color = Color(0xFF38BDF8),
+                    color = Color(0xFF00E5FF),
                     fontSize = (13 * fontScale).sp,
                     fontFamily = activeFont,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(6.dp))
                         .clickable(onClick = onClose)
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // SECTION A: ADJUSTABLE LAYOUT & SECTION ORDER (PULL UP/DOWN)
+            // 1. ADJUSTABLE LAYOUT & SECTION ORDER (PULL UP/DOWN)
             // ========================================================
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SwapVert,
-                        contentDescription = null,
-                        tint = Color(0xFF38BDF8),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "1. ADJUST HOME SCREEN LAYOUT",
-                        color = Color(0xFF9E9E9E),
-                        fontSize = (12 * fontScale).sp,
-                        fontFamily = activeFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "1. SECTION ORDER",
+                    color = Color(0xFF888888),
+                    fontSize = (12 * fontScale).sp,
+                    fontFamily = activeFont,
+                    fontWeight = FontWeight.Bold
+                )
 
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(onClick = onResetSectionOrder)
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "Reset",
-                        tint = Color(0xFF888888),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(
-                        text = "Reset",
-                        color = Color(0xFF888888),
-                        fontSize = (11 * fontScale).sp,
-                        fontFamily = activeFont
-                    )
-                }
+                Text(
+                    text = "Reset Default",
+                    color = Color(0xFF666666),
+                    fontSize = (11 * fontScale).sp,
+                    fontFamily = activeFont,
+                    modifier = Modifier.clickable(onClick = onResetSectionOrder)
+                )
             }
 
-            Text(
-                text = "Pull sections up or down to set your ideal arrangement:",
-                color = Color(0xFF616161),
-                fontSize = (11 * fontScale).sp,
-                modifier = Modifier.padding(bottom = 10.dp)
-            )
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Reorderable sections list
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0F0F0F))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(12.dp))
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 sectionOrder.forEachIndexed { idx, sec ->
                     val canUp = idx > 0
@@ -1423,10 +1513,10 @@ private fun HomeScreenSettingsMenu(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF161616))
-                            .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black)
+                            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1434,229 +1524,89 @@ private fun HomeScreenSettingsMenu(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF242424)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "${idx + 1}",
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = (12 * fontScale).sp,
-                                    fontFamily = activeFont,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Column {
-                                Text(
-                                    text = sec.title,
-                                    color = Color.White,
-                                    fontSize = (13 * fontScale).sp,
-                                    fontFamily = activeFont,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "Position #${idx + 1}",
-                                    color = Color(0xFF666666),
-                                    fontSize = (10 * fontScale).sp,
-                                    fontFamily = activeFont
-                                )
-                            }
-                        }
-
-                        // Pull Up & Pull Down Action Buttons
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            // Up
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (canUp) Color(0xFF222222) else Color(0xFF141414))
-                                    .border(
-                                        1.dp,
-                                        if (canUp) Color(0xFF444444) else Color(0xFF1E1E1E),
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable(enabled = canUp) { onMoveSection(sec, -1) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.KeyboardArrowUp,
-                                        contentDescription = "Move Up",
-                                        tint = if (canUp) Color.White else Color(0xFF444444),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = "UP",
-                                        color = if (canUp) Color.White else Color(0xFF444444),
-                                        fontSize = (10 * fontScale).sp,
-                                        fontFamily = activeFont,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            // Down
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (canDown) Color(0xFF222222) else Color(0xFF141414))
-                                    .border(
-                                        1.dp,
-                                        if (canDown) Color(0xFF444444) else Color(0xFF1E1E1E),
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .clickable(enabled = canDown) { onMoveSection(sec, 1) }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.KeyboardArrowDown,
-                                        contentDescription = "Move Down",
-                                        tint = if (canDown) Color.White else Color(0xFF444444),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = "DOWN",
-                                        color = if (canDown) Color.White else Color(0xFF444444),
-                                        fontSize = (10 * fontScale).sp,
-                                        fontFamily = activeFont,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Quick Layout Presets
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Quick Arrangement Presets:",
-                    color = Color(0xFF888888),
-                    fontSize = (11 * fontScale).sp,
-                    fontFamily = activeFont
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val presets = listOf(
-                        "Default" to listOf(HomeSection.HEADER, HomeSection.APPS, HomeSection.NOTIFICATIONS, HomeSection.AGENDA),
-                        "Agenda 1st" to listOf(HomeSection.AGENDA, HomeSection.HEADER, HomeSection.APPS, HomeSection.NOTIFICATIONS),
-                        "Apps 1st" to listOf(HomeSection.APPS, HomeSection.HEADER, HomeSection.NOTIFICATIONS, HomeSection.AGENDA)
-                    )
-
-                    presets.forEach { (name, list) ->
-                        val isPresetActive = sectionOrder == list
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isPresetActive) Color(0xFF1E3A5F) else Color(0xFF181818))
-                                .border(
-                                    1.dp,
-                                    if (isPresetActive) Color(0xFF38BDF8) else Color(0xFF282828),
-                                    RoundedCornerShape(6.dp)
-                                )
-                                .clickable { onSetSectionOrderPreset(list) }
-                                .padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
                             Text(
-                                text = name,
-                                color = if (isPresetActive) Color(0xFF38BDF8) else Color(0xFFB0B0B0),
-                                fontSize = (10 * fontScale).sp,
+                                text = "${idx + 1}",
+                                color = Color(0xFF00E5FF),
+                                fontSize = (12 * fontScale).sp,
                                 fontFamily = activeFont,
-                                fontWeight = if (isPresetActive) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = sec.title,
+                                color = Color.White,
+                                fontSize = (13 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = FontWeight.Medium
                             )
                         }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(1.dp, if (canUp) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(4.dp))
+                                    .clickable(enabled = canUp) { onMoveSection(sec, -1) }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("UP", color = if (canUp) Color.White else Color(0xFF444444), fontSize = 10.sp, fontFamily = activeFont)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(1.dp, if (canDown) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(4.dp))
+                                    .clickable(enabled = canDown) { onMoveSection(sec, 1) }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("DOWN", color = if (canDown) Color.White else Color(0xFF444444), fontSize = 10.sp, fontFamily = activeFont)
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // SECTION B: TYPOGRAPHY (FONT FAMILY & FONT SIZE)
+            // 2. TYPOGRAPHY (FONT FAMILY & FONT SIZE)
             // ========================================================
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.FormatSize,
-                    contentDescription = null,
-                    tint = Color(0xFF38BDF8),
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "2. TYPOGRAPHY & FONT STYLES",
-                    color = Color(0xFF9E9E9E),
-                    fontSize = (12 * fontScale).sp,
-                    fontFamily = activeFont,
-                    fontWeight = FontWeight.Bold
-                )
-            }
             Text(
-                text = "Select your preferred font family and scale factor:",
-                color = Color(0xFF616161),
-                fontSize = (11 * fontScale).sp,
-                modifier = Modifier.padding(bottom = 10.dp)
+                text = "2. TYPOGRAPHY & FONT STYLES",
+                color = Color(0xFF888888),
+                fontSize = (12 * fontScale).sp,
+                fontFamily = activeFont,
+                fontWeight = FontWeight.Bold
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0F0F0F))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(12.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Font Family selector
-                Text(
-                    text = "Font Family Style:",
-                    color = Color(0xFFAAAAAA),
-                    fontSize = (11 * fontScale).sp,
-                    fontFamily = activeFont,
-                    fontWeight = FontWeight.SemiBold
-                )
-
+                Text("Font Family:", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     LauncherFontFamily.entries.forEach { family ->
                         val isSelected = selectedFontFamily == family
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) Color(0xFF1E293B) else Color(0xFF141414))
-                                .border(
-                                    1.dp,
-                                    if (isSelected) Color(0xFF38BDF8) else Color(0xFF262626),
-                                    RoundedCornerShape(8.dp)
-                                )
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
                                 .clickable { onSelectFontFamily(family) }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = family.label,
-                                color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFB0B0B0),
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF888888),
                                 fontSize = (11 * fontScale).sp,
                                 fontFamily = family.composeFamily,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1666,14 +1616,7 @@ private fun HomeScreenSettingsMenu(
                 }
 
                 // Font Size selector
-                Text(
-                    text = "Font Size Scale:",
-                    color = Color(0xFFAAAAAA),
-                    fontSize = (11 * fontScale).sp,
-                    fontFamily = activeFont,
-                    fontWeight = FontWeight.SemiBold
-                )
-
+                Text("Font Size Scale:", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1683,20 +1626,15 @@ private fun HomeScreenSettingsMenu(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) Color(0xFF1E293B) else Color(0xFF141414))
-                                .border(
-                                    1.dp,
-                                    if (isSelected) Color(0xFF38BDF8) else Color(0xFF262626),
-                                    RoundedCornerShape(8.dp)
-                                )
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
                                 .clickable { onSelectFontSize(sizeOption) }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = sizeOption.label.split(" ").first(),
-                                color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFB0B0B0),
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF888888),
                                 fontSize = (11 * sizeOption.scale).sp,
                                 fontFamily = activeFont,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -1704,106 +1642,56 @@ private fun HomeScreenSettingsMenu(
                         }
                     }
                 }
-
-                // Live Typography Preview
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF070707))
-                        .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
-                        .padding(10.dp)
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "LIVE PREVIEW",
-                                color = Color(0xFF555555),
-                                fontSize = 9.sp,
-                                fontFamily = activeFont,
-                                letterSpacing = 1.sp
-                            )
-                            Text(
-                                text = "${selectedFontFamily.label} • ${(fontScale * 100).toInt()}%",
-                                color = Color(0xFF38BDF8),
-                                fontSize = 9.sp,
-                                fontFamily = activeFont
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "10:45 AM",
-                            color = Color.White,
-                            fontSize = (28 * fontScale).sp,
-                            fontFamily = activeFont,
-                            fontWeight = FontWeight.Light
-                        )
-                        Text(
-                            text = "Minimal Launcher — Samsung Galaxy S25 Edition",
-                            color = Color(0xFFAAAAAA),
-                            fontSize = (12 * fontScale).sp,
-                            fontFamily = activeFont
-                        )
-                    }
-                }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // SECTION C: CHOOSE HOME APPS
+            // 3. CHOOSE HOME APPS (NEON ICONS)
             // ========================================================
             Text(
-                text = "3. CHOOSE HOME SCREEN ICONS",
-                color = Color(0xFF9E9E9E),
+                text = "3. HOME SCREEN APPS",
+                color = Color(0xFF888888),
                 fontSize = (12 * fontScale).sp,
                 fontFamily = activeFont,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = "Select which minimal apps appear in your favorites grid:",
-                color = Color(0xFF616161),
-                fontSize = (11 * fontScale).sp,
-                modifier = Modifier.padding(bottom = 10.dp)
-            )
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0F0F0F))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(12.dp))
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 AVAILABLE_HOME_APPS.forEach { app ->
                     val isChecked = app.id in selectedAppIds
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(6.dp))
                             .clickable { onToggleApp(app.id) }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Icon(
                                 imageVector = app.icon,
                                 contentDescription = app.label,
-                                tint = if (isChecked) Color.White else Color(0xFF666666),
-                                modifier = Modifier.size(20.dp)
+                                tint = if (isChecked) app.neonColor else Color(0xFF555555),
+                                modifier = Modifier.size(18.dp)
                             )
                             Text(
                                 text = app.label,
-                                color = if (isChecked) Color.White else Color(0xFF888888),
-                                fontSize = (14 * fontScale).sp,
+                                color = if (isChecked) Color.White else Color(0xFF777777),
+                                fontSize = (13 * fontScale).sp,
                                 fontFamily = activeFont,
                                 fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal
                             )
@@ -1812,176 +1700,76 @@ private fun HomeScreenSettingsMenu(
                         Icon(
                             imageVector = if (isChecked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
                             contentDescription = if (isChecked) "Selected" else "Unselected",
-                            tint = if (isChecked) Color(0xFF38BDF8) else Color(0xFF444444),
-                            modifier = Modifier.size(20.dp)
+                            tint = if (isChecked) app.neonColor else Color(0xFF333333),
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // SECTION D: ROLLING NOTIFICATIONS SECTION
+            // 4. NOTIFICATIONS & AGENDA SYNC PERMISSIONS
             // ========================================================
             Text(
-                text = "4. ROLLING NOTIFICATIONS SECTION",
-                color = Color(0xFF9E9E9E),
+                text = "4. SYSTEM PERMISSIONS & SYNC",
+                color = Color(0xFF888888),
                 fontSize = (12 * fontScale).sp,
                 fontFamily = activeFont,
                 fontWeight = FontWeight.Bold
             )
+
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0F0F0F))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(12.dp))
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                // Notification permission
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onRequestNotificationAccess)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Notification Listener Access", color = Color.White, fontSize = (12 * fontScale).sp, fontFamily = activeFont)
                     Text(
-                        text = "Show Rolling Notifications",
-                        color = Color.White,
-                        fontSize = (14 * fontScale).sp,
-                        fontFamily = activeFont,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Incoming alerts displayed in a clean scrollable ticker",
-                        color = Color(0xFF777777),
+                        text = if (isNotificationAccessGranted) "GRANTED ✓" else "GRANT",
+                        color = if (isNotificationAccessGranted) Color(0xFF39FF14) else Color(0xFF00E5FF),
                         fontSize = (11 * fontScale).sp,
-                        fontFamily = activeFont
+                        fontFamily = activeFont,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
-                Switch(
-                    checked = showNotifications,
-                    onCheckedChange = onToggleNotifications,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF38BDF8),
-                        uncheckedThumbColor = Color(0xFF666666),
-                        uncheckedTrackColor = Color(0xFF222222)
+                // Calendar & Call Log permission
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onRequestCalendarAndCallLog)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Calendar (Teams / Gmail) & Call Log", color = Color.White, fontSize = (12 * fontScale).sp, fontFamily = activeFont)
+                    Text(
+                        text = "SYNC",
+                        color = Color(0xFF00E5FF),
+                        fontSize = (11 * fontScale).sp,
+                        fontFamily = activeFont,
+                        fontWeight = FontWeight.Bold
                     )
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Notification Access Permission Button
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF141414))
-                    .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(10.dp))
-                    .clickable(onClick = onRequestNotificationAccess)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Notification Access Permission",
-                    color = Color(0xFFCCCCCC),
-                    fontSize = (12 * fontScale).sp,
-                    fontFamily = activeFont
-                )
-                Text(
-                    text = if (isNotificationAccessGranted) "GRANTED ✓" else "GRANT PERMISSION",
-                    color = if (isNotificationAccessGranted) Color(0xFF39FF14) else Color(0xFFFBBF24),
-                    fontSize = (11 * fontScale).sp,
-                    fontFamily = activeFont,
-                    fontWeight = FontWeight.Bold
-                )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            // ========================================================
-            // SECTION E: MEETINGS & REMINDERS (TEAMS, PERSONAL, GMAIL, MISSED CALLS)
-            // ========================================================
-            Text(
-                text = "5. AGENDA, TEAMS, GMAIL & MISSED CALLS",
-                color = Color(0xFF9E9E9E),
-                fontSize = (12 * fontScale).sp,
-                fontFamily = activeFont,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0F0F0F))
-                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(12.dp))
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Show Unified Agenda List",
-                        color = Color.White,
-                        fontSize = (14 * fontScale).sp,
-                        fontFamily = activeFont,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Teams (Work), Personal / Gmail meetings & Missed Calls in minimal list mode",
-                        color = Color(0xFF777777),
-                        fontSize = (11 * fontScale).sp,
-                        fontFamily = activeFont
-                    )
-                }
-
-                Switch(
-                    checked = showAgenda,
-                    onCheckedChange = onToggleAgenda,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF38BDF8),
-                        uncheckedThumbColor = Color(0xFF666666),
-                        uncheckedTrackColor = Color(0xFF222222)
-                    )
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Calendar & Call Log Permission
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF141414))
-                    .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(10.dp))
-                    .clickable(onClick = onRequestCalendarAndCallLog)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Calendar & Call Log Sync",
-                    color = Color(0xFFCCCCCC),
-                    fontSize = (12 * fontScale).sp,
-                    fontFamily = activeFont
-                )
-                Text(
-                    text = "SYNC PERMISSION",
-                    color = Color(0xFF38BDF8),
-                    fontSize = (11 * fontScale).sp,
-                    fontFamily = activeFont,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
         }
     }
 }
@@ -2009,34 +1797,32 @@ private fun AppDrawerSheet(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .statusBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF121212))
-                    .border(1.dp, Color(0xFF2A2A2A), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = "Search",
-                    tint = Color(0xFF9E9E9E),
-                    modifier = Modifier.size(20.dp)
+                    tint = Color(0xFF888888),
+                    modifier = Modifier.size(18.dp)
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Box(modifier = Modifier.weight(1f)) {
                     if (query.isEmpty()) {
                         Text(
                             text = "Search apps...",
-                            color = Color(0xFF616161),
-                            fontSize = (15 * fontScale).sp,
+                            color = Color(0xFF555555),
+                            fontSize = (14 * fontScale).sp,
                             fontFamily = fontFamily
                         )
                     }
@@ -2046,7 +1832,7 @@ private fun AppDrawerSheet(
                         singleLine = true,
                         textStyle = TextStyle(
                             color = Color.White,
-                            fontSize = (15 * fontScale).sp,
+                            fontSize = (14 * fontScale).sp,
                             fontFamily = fontFamily
                         ),
                         cursorBrush = SolidColor(Color.White),
@@ -2058,15 +1844,15 @@ private fun AppDrawerSheet(
                     Icon(
                         imageVector = Icons.Rounded.Clear,
                         contentDescription = "Clear",
-                        tint = Color(0xFF9E9E9E),
+                        tint = Color(0xFF888888),
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(18.dp)
                             .clickable { onQueryChange("") }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2075,16 +1861,16 @@ private fun AppDrawerSheet(
             ) {
                 Text(
                     text = "${filteredApps.size} APPS",
-                    color = Color(0xFF757575),
-                    fontSize = (12 * fontScale).sp,
+                    color = Color(0xFF666666),
+                    fontSize = (11 * fontScale).sp,
                     fontFamily = fontFamily,
                     letterSpacing = 1.2.sp
                 )
 
                 Text(
                     text = "CLOSE",
-                    color = Color(0xFFBDBDBD),
-                    fontSize = (12 * fontScale).sp,
+                    color = Color(0xFFAAAAAA),
+                    fontSize = (11 * fontScale).sp,
                     fontFamily = fontFamily,
                     modifier = Modifier.clickable(onClick = onClose)
                 )
@@ -2094,41 +1880,40 @@ private fun AppDrawerSheet(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(filteredApps, key = { it.packageName + it.activityName }) { app ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
                             .clickable { onAppClick(app) }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF141414))
-                                .border(1.dp, Color(0xFF2B2B2B), CircleShape),
+                                .background(Color.Black)
+                                .border(1.dp, Color(0xFF262626), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = app.label.take(1).uppercase(Locale.getDefault()),
                                 color = Color.White,
-                                fontSize = (14 * fontScale).sp,
+                                fontSize = (13 * fontScale).sp,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.Bold
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(16.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
 
                         Column {
                             Text(
                                 text = app.label,
                                 color = Color.White,
-                                fontSize = (15 * fontScale).sp,
+                                fontSize = (14 * fontScale).sp,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
@@ -2137,7 +1922,7 @@ private fun AppDrawerSheet(
                             Text(
                                 text = app.packageName,
                                 color = Color(0xFF555555),
-                                fontSize = (11 * fontScale).sp,
+                                fontSize = (10 * fontScale).sp,
                                 fontFamily = fontFamily,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -2267,10 +2052,12 @@ private fun computeTodayScreenTime(context: Context): String {
     }
 }
 
+// ---------------- REAL AGENDA (TEAMS WORK PROFILE, PERSONAL TEAMS & GMAIL) ----------------
+
 private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
     val result = mutableListOf<AgendaItem>()
 
-    // 1. Try querying real Missed Calls if READ_CALL_LOG is granted
+    // 1. Query Missed Calls if READ_CALL_LOG is granted
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
         try {
             val cursor: Cursor? = context.contentResolver.query(
@@ -2305,99 +2092,118 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
         }
     }
 
-    // 2. Try querying Android Calendar Contract (Teams & Gmail sync into Calendar) if READ_CALENDAR is granted
+    // 2. Query Calendar: Both Personal Profile & Enterprise / Work Profile (Teams & Gmail)
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
-        try {
-            val startOfDay = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-            }.timeInMillis
+        val startWindow = System.currentTimeMillis() - 3600_000L // from 1 hour ago
+        val endWindow = System.currentTimeMillis() + (48L * 3600_000L) // up to 48 hours ahead
 
-            val endOfDay = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-            }.timeInMillis
+        val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val dayFmt = SimpleDateFormat("EEE", Locale.getDefault())
 
-            val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
-                .appendPath(startOfDay.toString())
-                .appendPath(endOfDay.toString())
-                .build()
+        val queryCalendarUri = { uri: Uri, isEnterprise: Boolean ->
+            try {
+                val fullUri = uri.buildUpon()
+                    .appendPath(startWindow.toString())
+                    .appendPath(endWindow.toString())
+                    .build()
 
-            val cursor = context.contentResolver.query(
-                uri,
-                arrayOf(CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN, "account_name"),
-                null,
-                null,
-                "${CalendarContract.Instances.BEGIN} ASC LIMIT 4"
-            )
+                val projection = arrayOf(
+                    CalendarContract.Instances.TITLE,
+                    CalendarContract.Instances.BEGIN,
+                    "account_name",
+                    "description",
+                    "eventLocation"
+                )
 
-            val timeFmt = SimpleDateFormat("h:mm a", Locale.getDefault())
-            cursor?.use {
-                val titleIdx = it.getColumnIndex(CalendarContract.Instances.TITLE)
-                val beginIdx = it.getColumnIndex(CalendarContract.Instances.BEGIN)
-                val accountIdx = it.getColumnIndex("account_name")
+                val cursor = context.contentResolver.query(
+                    fullUri,
+                    projection,
+                    null,
+                    null,
+                    "${CalendarContract.Instances.BEGIN} ASC LIMIT 6"
+                )
 
-                while (it.moveToNext()) {
-                    val title = if (titleIdx >= 0) it.getString(titleIdx) ?: "Meeting" else "Meeting"
-                    val begin = if (beginIdx >= 0) it.getLong(beginIdx) else System.currentTimeMillis()
-                    val account = if (accountIdx >= 0) it.getString(accountIdx) ?: "" else ""
+                cursor?.use {
+                    val titleIdx = it.getColumnIndex(CalendarContract.Instances.TITLE)
+                    val beginIdx = it.getColumnIndex(CalendarContract.Instances.BEGIN)
+                    val accountIdx = it.getColumnIndex("account_name")
+                    val descIdx = it.getColumnIndex("description")
+                    val locIdx = it.getColumnIndex("eventLocation")
 
-                    val isTeams = account.contains("microsoft", ignoreCase = true) ||
-                            account.contains("teams", ignoreCase = true) ||
-                            account.contains("work", ignoreCase = true)
+                    while (it.moveToNext()) {
+                        val title = if (titleIdx >= 0) it.getString(titleIdx) ?: "Meeting" else "Meeting"
+                        val begin = if (beginIdx >= 0) it.getLong(beginIdx) else System.currentTimeMillis()
+                        val account = if (accountIdx >= 0) it.getString(accountIdx) ?: "" else ""
+                        val desc = if (descIdx >= 0) it.getString(descIdx) ?: "" else ""
+                        val loc = if (locIdx >= 0) it.getString(locIdx) ?: "" else ""
 
-                    val type = if (isTeams) AgendaType.TEAMS_WORK else AgendaType.GMAIL_PERSONAL
+                        val isTeams = account.contains("microsoft", ignoreCase = true) ||
+                                account.contains("teams", ignoreCase = true) ||
+                                account.contains("outlook", ignoreCase = true) ||
+                                account.contains("live.com", ignoreCase = true) ||
+                                desc.contains("teams.microsoft.com", ignoreCase = true) ||
+                                loc.contains("teams.microsoft.com", ignoreCase = true)
 
-                    result.add(
-                        AgendaItem(
-                            id = "cal_$begin",
-                            timeLabel = timeFmt.format(Date(begin)),
-                            title = title,
-                            subtitle = account,
-                            type = type
+                        val isWork = isEnterprise ||
+                                account.contains("work", ignoreCase = true) ||
+                                account.contains("corp", ignoreCase = true) ||
+                                account.contains("company", ignoreCase = true) ||
+                                account.contains("office365", ignoreCase = true)
+
+                        val type = when {
+                            isTeams && isWork -> AgendaType.TEAMS_WORK
+                            isTeams -> AgendaType.TEAMS_PERSONAL
+                            else -> AgendaType.GMAIL_PERSONAL
+                        }
+
+                        // Extract Teams meeting URL if present
+                        var targetIntent: Intent? = null
+                        val teamsUrlRegex = Regex("""(https://teams\.microsoft\.com/l/meetup-join/[^\s"']+)""")
+                        val match = teamsUrlRegex.find("$desc $loc")
+                        if (match != null) {
+                            try {
+                                targetIntent = Intent(Intent.ACTION_VIEW, Uri.parse(match.value))
+                            } catch (_: Exception) {
+                            }
+                        }
+
+                        val timeString = "${dayFmt.format(Date(begin))} ${timeFmt.format(Date(begin))}"
+
+                        val subtitleText = when (type) {
+                            AgendaType.TEAMS_WORK -> "Teams Work Profile • ${account.ifBlank { "Corporate" }}"
+                            AgendaType.TEAMS_PERSONAL -> "MS Teams • ${account.ifBlank { "Personal" }}"
+                            AgendaType.GMAIL_PERSONAL -> "Gmail • ${account.ifBlank { "Google Calendar" }}"
+                            else -> account
+                        }
+
+                        result.add(
+                            AgendaItem(
+                                id = "cal_${if (isEnterprise) "ent_" else ""}$begin",
+                                timeLabel = timeString,
+                                title = title,
+                                subtitle = subtitleText,
+                                type = type,
+                                targetIntent = targetIntent
+                            )
                         )
-                    )
+                    }
                 }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
+        }
+
+        // Query Personal Profile Calendar Instances
+        queryCalendarUri(CalendarContract.Instances.CONTENT_URI, false)
+
+        // Query Work Profile Calendar Instances (API 29+ Android Enterprise cross-profile calendar)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                queryCalendarUri(CalendarContract.Instances.ENTERPRISE_CONTENT_URI, true)
+            } catch (_: Exception) {
+            }
         }
     }
 
-    // Fallback minimal demo entries if calendar/call log is empty or permissions pending
-    if (result.isEmpty()) {
-        result.addAll(
-            listOf(
-                AgendaItem(
-                    id = "demo_teams_1",
-                    timeLabel = "10:30 AM",
-                    title = "Weekly Core Team Sync",
-                    subtitle = "Microsoft Teams • General Channel",
-                    type = AgendaType.TEAMS_WORK
-                ),
-                AgendaItem(
-                    id = "demo_teams_2",
-                    timeLabel = "02:00 PM",
-                    title = "S25 Launcher Architecture Review",
-                    subtitle = "Microsoft Teams • Work Call",
-                    type = AgendaType.TEAMS_WORK
-                ),
-                AgendaItem(
-                    id = "demo_gmail_1",
-                    timeLabel = "04:30 PM",
-                    title = "Doctor Appointment & Prescription",
-                    subtitle = "Personal Calendar • Gmail",
-                    type = AgendaType.GMAIL_PERSONAL
-                ),
-                AgendaItem(
-                    id = "demo_call_1",
-                    timeLabel = "📞 Missed",
-                    title = "Alex Turner",
-                    subtitle = "Missed call • 14m ago",
-                    type = AgendaType.MISSED_CALL
-                )
-            )
-        )
-    }
-
-    return result
+    // Sort: missed calls first, then meetings chronologically (NO FAKE DATA FALLBACK)
+    return result.sortedWith(compareBy({ it.type != AgendaType.MISSED_CALL }, { it.id }))
 }
