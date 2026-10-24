@@ -37,11 +37,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,11 +65,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Apps
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BatteryChargingFull
-import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.BluetoothDisabled
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -77,12 +74,10 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -93,11 +88,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapVert
-import androidx.compose.material.icons.rounded.Vibration
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
-import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -108,8 +99,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -117,8 +108,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -214,7 +205,7 @@ data class AgendaItem(
 data class AppChoice(
     val id: String,
     val label: String,
-    val icon: ImageVector,
+    val icon: ImageVector? = null,
     val candidatePackages: List<String>,
     val neonColor: Color,
     val fallbackIntentAction: String? = null
@@ -289,6 +280,27 @@ class MainActivity : ComponentActivity() {
         // Re-enforce full screen immersive mode
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.hide(WindowInsetsCompat.Type.statusBars())
+    }
+}
+
+// ---------------- GEMINI 4-POINT SPARKLE VECTOR ICON ----------------
+
+@Composable
+fun GeminiSparkleIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF00E5FF)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val cx = w / 2f
+        val cy = h / 2f
+        val path = Path().apply {
+            moveTo(cx, 0f)
+            quadraticBezierTo(cx, cy, w, cy)
+            quadraticBezierTo(cx, cy, cx, h)
+            quadraticBezierTo(cx, cy, 0f, cy)
+            quadraticBezierTo(cx, cy, cx, 0f)
+            close()
+        }
+        drawPath(path, color = color)
     }
 }
 
@@ -385,9 +397,9 @@ fun MinimalS25LauncherScreen() {
         agendaList = loadAgendaAndMissedCalls(context)
     }
 
-    // Gesture tracking for double tap and swipe navigation
-    var lastTapTime by remember { mutableLongStateOf(0L) }
-    var lastTapPos by remember { mutableStateOf(Offset.Zero) }
+    // Drag tracking for directional swipes
+    var totalDragX by remember { mutableFloatStateOf(0f) }
+    var totalDragY by remember { mutableFloatStateOf(0f) }
 
     // Section movement helper (Pull Up or Down)
     fun moveSection(section: HomeSection, direction: Int) {
@@ -506,61 +518,43 @@ fun MinimalS25LauncherScreen() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // 1. Double-Tap on Black Area to Lock Screen
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            lockDevice(context)
+                        }
+                    )
+                }
+                // 2. Directional Drag Gestures: Swipe UP for Apps, Swipe DOWN for Notification Shade
                 .pointerInput(isDrawerOpen || isSettingsOpen || isArrangeMode) {
                     if (!isDrawerOpen && !isSettingsOpen && !isArrangeMode) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val downPos = down.position
-                            val downTime = System.currentTimeMillis()
-                            var currentPos = downPos
-                            var isDrag = false
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) {
-                                    break
-                                }
-                                currentPos = change.position
-                                val deltaX = currentPos.x - downPos.x
-                                val deltaY = currentPos.y - downPos.y
-                                if (kotlin.math.abs(deltaX) > 24f || kotlin.math.abs(deltaY) > 24f) {
-                                    isDrag = true
-                                }
-                            }
-
-                            val totalX = currentPos.x - downPos.x
-                            val totalY = currentPos.y - downPos.y
-
-                            if (isDrag) {
-                                // Directional Swipes
-                                if (totalY < -90f && kotlin.math.abs(totalY) > kotlin.math.abs(totalX)) {
-                                    // 1. Swipe UP -> Access All Apps Drawer
+                        detectDragGestures(
+                            onDragStart = {
+                                totalDragX = 0f
+                                totalDragY = 0f
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                totalDragX += dragAmount.x
+                                totalDragY += dragAmount.y
+                            },
+                            onDragEnd = {
+                                if (totalDragY < -90f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX)) {
+                                    // Swipe UP -> All Apps Drawer
                                     isDrawerOpen = true
-                                } else if (totalY > 90f && kotlin.math.abs(totalY) > kotlin.math.abs(totalX)) {
-                                    // 4. Swipe DOWN -> Access Notification Shade
+                                } else if (totalDragY > 90f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX)) {
+                                    // Swipe DOWN -> System Notification Shade
                                     expandNotificationShade(context)
-                                } else if (totalX > 110f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY)) {
+                                } else if (totalDragX > 110f && kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY)) {
                                     // Swipe RIGHT -> Phone Dialer
                                     launchDialer(context)
-                                } else if (totalX < -110f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY)) {
+                                } else if (totalDragX < -110f && kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY)) {
                                     // Swipe LEFT -> Camera
                                     launchCameraApp(context)
                                 }
-                            } else {
-                                // Tap Detected: Check for Double-Tap on Black Area to Lock Screen
-                                val tapInterval = downTime - lastTapTime
-                                val tapDistance = kotlin.math.hypot(downPos.x - lastTapPos.x, downPos.y - lastTapPos.y)
-                                if (tapInterval in 40..350 && tapDistance < 60f) {
-                                    // 5. Double Tap to Lock Phone
-                                    lockDevice(context)
-                                    lastTapTime = 0L
-                                } else {
-                                    lastTapTime = downTime
-                                    lastTapPos = downPos
-                                }
                             }
-                        }
+                        )
                     }
                 }
         ) {
@@ -732,7 +726,7 @@ fun MinimalS25LauncherScreen() {
                                     Spacer(modifier = Modifier.height(10.dp))
                                 }
 
-                                // Clock Row with Gemini AI Icon Button on the Right
+                                // Clock Row with Gemini AI Sparkle Icon Button on the Right
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -753,16 +747,14 @@ fun MinimalS25LauncherScreen() {
                                             .size(36.dp)
                                             .clip(CircleShape)
                                             .background(Color.Black)
-                                            .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), CircleShape)
+                                            .border(1.2.dp, Color(0xFF00E5FF).copy(alpha = 0.8f), CircleShape)
                                             .clickable { launchGemini(context) }
-                                            .padding(6.dp),
+                                            .padding(8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.AutoAwesome,
-                                            contentDescription = "Gemini AI Assistant",
-                                            tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(20.dp)
+                                        GeminiSparkleIcon(
+                                            modifier = Modifier.size(18.dp),
+                                            color = Color(0xFF00E5FF)
                                         )
                                     }
                                 }
@@ -859,7 +851,7 @@ fun MinimalS25LauncherScreen() {
                                             AppChoice(
                                                 id = entry.packageName,
                                                 label = entry.label,
-                                                icon = Icons.Rounded.Apps,
+                                                icon = null,
                                                 candidatePackages = listOf(entry.packageName),
                                                 neonColor = getNeonColorForPackage(entry.packageName)
                                             )
@@ -1321,20 +1313,10 @@ private fun QuickTogglesBar(
     onToggleBluetooth: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val ringerIcon = when (ringerMode) {
-        AudioManager.RINGER_MODE_NORMAL -> Icons.Rounded.VolumeUp
-        AudioManager.RINGER_MODE_VIBRATE -> Icons.Rounded.Vibration
-        else -> Icons.Rounded.VolumeOff
-    }
-    val ringerLabel = when (ringerMode) {
-        AudioManager.RINGER_MODE_NORMAL -> "SOUND"
-        AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
-        else -> "SILENT"
-    }
-    val ringerColor = when (ringerMode) {
-        AudioManager.RINGER_MODE_NORMAL -> Color(0xFF39FF14)
-        AudioManager.RINGER_MODE_VIBRATE -> Color(0xFFFFD600)
-        else -> Color(0xFFFF5252)
+    val (ringerGlyph, ringerLabel, ringerColor) = when (ringerMode) {
+        AudioManager.RINGER_MODE_NORMAL -> Triple("VOL", "SOUND", Color(0xFF39FF14))
+        AudioManager.RINGER_MODE_VIBRATE -> Triple("VIB", "VIBRATE", Color(0xFFFFD600))
+        else -> Triple("SIL", "SILENT", Color(0xFFFF5252))
     }
 
     Row(
@@ -1348,109 +1330,130 @@ private fun QuickTogglesBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 1. Wi-Fi Toggle
-        QuickToggleItem(
-            icon = if (isWifiEnabled) Icons.Rounded.Wifi else Icons.Rounded.WifiOff,
-            label = "WI-FI",
-            statusText = if (isWifiEnabled) "ON" else "OFF",
-            activeColor = Color(0xFF00E5FF),
-            isActive = isWifiEnabled,
-            fontFamily = fontFamily,
-            fontScale = fontScale,
-            onClick = onToggleWifi
-        )
-
-        // 2. Silent / Sound Mode Cycle
-        QuickToggleItem(
-            icon = ringerIcon,
-            label = "MODE",
-            statusText = ringerLabel,
-            activeColor = ringerColor,
-            isActive = ringerMode != AudioManager.RINGER_MODE_SILENT,
-            fontFamily = fontFamily,
-            fontScale = fontScale,
-            onClick = onCycleRinger
-        )
-
-        // 3. Bluetooth Toggle
-        QuickToggleItem(
-            icon = if (isBluetoothEnabled) Icons.Rounded.Bluetooth else Icons.Rounded.BluetoothDisabled,
-            label = "BLUETOOTH",
-            statusText = if (isBluetoothEnabled) "ON" else "OFF",
-            activeColor = Color(0xFF818CF8),
-            isActive = isBluetoothEnabled,
-            fontFamily = fontFamily,
-            fontScale = fontScale,
-            onClick = onToggleBluetooth
-        )
-
-        // 4. Android Settings
-        QuickToggleItem(
-            icon = Icons.Rounded.Settings,
-            label = "SETTINGS",
-            statusText = "OPEN",
-            activeColor = Color(0xFFEEEEEE),
-            isActive = false,
-            fontFamily = fontFamily,
-            fontScale = fontScale,
-            onClick = onOpenSettings
-        )
-    }
-}
-
-@Composable
-private fun QuickToggleItem(
-    icon: ImageVector,
-    label: String,
-    statusText: String,
-    activeColor: Color,
-    isActive: Boolean,
-    fontFamily: FontFamily,
-    fontScale: Float,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        Box(
+        Column(
             modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(Color.Black)
-                .border(
-                    1.dp,
-                    if (isActive) activeColor.copy(alpha = 0.85f) else Color(0xFF333333),
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onToggleWifi)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (isActive) activeColor else Color(0xFF777777),
-                modifier = Modifier.size(17.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black)
+                    .border(
+                        1.dp,
+                        if (isWifiEnabled) Color(0xFF00E5FF).copy(alpha = 0.85f) else Color(0xFF333333),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Wifi,
+                    contentDescription = "Wi-Fi",
+                    tint = if (isWifiEnabled) Color(0xFF00E5FF) else Color(0xFF777777),
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+            Text("WI-FI", color = Color(0xFF777777), fontSize = (9 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Medium)
+            Text(if (isWifiEnabled) "ON" else "OFF", color = if (isWifiEnabled) Color(0xFF00E5FF) else Color(0xFF555555), fontSize = (8 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Bold)
         }
 
-        Text(
-            text = label,
-            color = Color(0xFF777777),
-            fontSize = (9 * fontScale).sp,
-            fontFamily = fontFamily,
-            fontWeight = FontWeight.Medium
-        )
+        // 2. Silent / Sound Mode Cycle
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onCycleRinger)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black)
+                    .border(
+                        1.dp,
+                        ringerColor.copy(alpha = 0.85f),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = ringerGlyph,
+                    color = ringerColor,
+                    fontSize = 11.sp,
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text("MODE", color = Color(0xFF777777), fontSize = (9 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Medium)
+            Text(ringerLabel, color = ringerColor, fontSize = (8 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Bold)
+        }
 
-        Text(
-            text = statusText,
-            color = if (isActive) activeColor else Color(0xFF555555),
-            fontSize = (8 * fontScale).sp,
-            fontFamily = fontFamily,
-            fontWeight = FontWeight.Bold
-        )
+        // 3. Bluetooth Toggle
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onToggleBluetooth)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black)
+                    .border(
+                        1.dp,
+                        if (isBluetoothEnabled) Color(0xFF818CF8).copy(alpha = 0.85f) else Color(0xFF333333),
+                        CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "BT",
+                    color = if (isBluetoothEnabled) Color(0xFF818CF8) else Color(0xFF777777),
+                    fontSize = 11.sp,
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text("BLUETOOTH", color = Color(0xFF777777), fontSize = (9 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Medium)
+            Text(if (isBluetoothEnabled) "ON" else "OFF", color = if (isBluetoothEnabled) Color(0xFF818CF8) else Color(0xFF555555), fontSize = (8 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Bold)
+        }
+
+        // 4. Android Settings
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onOpenSettings)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black)
+                    .border(1.dp, Color(0xFF333333), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = "Settings",
+                    tint = Color(0xFF888888),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Text("SETTINGS", color = Color(0xFF777777), fontSize = (9 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Medium)
+            Text("SYSTEM", color = Color(0xFF555555), fontSize = (8 * fontScale).sp, fontFamily = fontFamily, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -1606,12 +1609,22 @@ private fun MonochromeAppItem(
                 .border(1.2.dp, app.neonColor.copy(alpha = 0.85f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = app.icon,
-                contentDescription = app.label,
-                tint = app.neonColor,
-                modifier = Modifier.size((iconSize.value * 0.46f).dp)
-            )
+            if (app.icon != null) {
+                Icon(
+                    imageVector = app.icon,
+                    contentDescription = app.label,
+                    tint = app.neonColor,
+                    modifier = Modifier.size((iconSize.value * 0.46f).dp)
+                )
+            } else {
+                Text(
+                    text = app.label.take(1).uppercase(Locale.getDefault()),
+                    color = app.neonColor,
+                    fontSize = (iconSize.value * 0.42f).sp,
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -2037,8 +2050,8 @@ private fun HomeScreenSettingsMenu(
                                 .weight(1f)
                                 .clip(RoundedCornerShape(6.dp))
                                 .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
-                            .clickable { onUpdateIconSize(size) }
-                            .padding(vertical = 6.dp),
+                                .clickable { onUpdateIconSize(size) }
+                                .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -2065,8 +2078,8 @@ private fun HomeScreenSettingsMenu(
                                 .weight(1f)
                                 .clip(RoundedCornerShape(6.dp))
                                 .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
-                            .clickable { onUpdateLayoutPaddingX(pad) }
-                            .padding(vertical = 6.dp),
+                                .clickable { onUpdateLayoutPaddingX(pad) }
+                                .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -2093,8 +2106,8 @@ private fun HomeScreenSettingsMenu(
                                 .weight(1f)
                                 .clip(RoundedCornerShape(6.dp))
                                 .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
-                            .clickable { onUpdateSectionSpacingY(sp) }
-                            .padding(vertical = 6.dp),
+                                .clickable { onUpdateSectionSpacingY(sp) }
+                                .padding(vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -2317,12 +2330,22 @@ private fun HomeScreenSettingsMenu(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(
-                                imageVector = app.icon,
-                                contentDescription = app.label,
-                                tint = if (isChecked) app.neonColor else Color(0xFF555555),
-                                modifier = Modifier.size(18.dp)
-                            )
+                            if (app.icon != null) {
+                                Icon(
+                                    imageVector = app.icon,
+                                    contentDescription = app.label,
+                                    tint = if (isChecked) app.neonColor else Color(0xFF555555),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = app.label.take(1).uppercase(Locale.getDefault()),
+                                    color = if (isChecked) app.neonColor else Color(0xFF555555),
+                                    fontSize = 12.sp,
+                                    fontFamily = activeFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             Text(
                                 text = app.label,
                                 color = if (isChecked) Color.White else Color(0xFF777777),
@@ -2591,11 +2614,9 @@ private fun AppDrawerSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.History,
-                            contentDescription = "Recent Apps",
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(14.dp)
+                        Text(
+                            text = "⏱",
+                            fontSize = (12 * fontScale).sp
                         )
                         Text(
                             text = "RECENT & FREQUENT (TOP 10)",
@@ -2930,7 +2951,7 @@ private fun lockDevice(context: Context) {
 private fun toggleWifi(context: Context, wifiManager: WifiManager?) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         try {
-            context.startActivity(Intent(Settings.Panel.ACTION_WIFI).apply {
+            context.startActivity(Intent("android.settings.panel.action.WIFI").apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (_: Exception) {
