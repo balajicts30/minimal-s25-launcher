@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Minimal S25</string>
+    <string name="device_admin_label">Minimal S25 Lock Screen</string>
+    <string name="device_admin_description">Allows double-tap on the home screen to lock your device securely.</string>
 </resources>

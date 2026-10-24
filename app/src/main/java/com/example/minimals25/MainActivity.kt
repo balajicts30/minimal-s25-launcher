@@ -2,16 +2,22 @@ package com.example.minimals25
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.app.NotificationManager
+import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageStatsManager
+import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.media.AudioManager
 import android.net.TrafficStats
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
@@ -34,7 +40,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,7 +64,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BatteryChargingFull
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.BluetoothDisabled
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -66,10 +77,12 @@ import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.PhotoCamera
@@ -80,7 +93,11 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.material.icons.rounded.VolumeOff
+import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -91,8 +108,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -100,6 +117,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -110,6 +128,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -153,13 +172,15 @@ enum class LauncherFontSize(val id: String, val label: String, val scale: Float)
 enum class HomeSection(val id: String, val title: String, val shortTitle: String) {
     HEADER("header", "Clock & Screen Time Header", "CLOCK & STATS"),
     APPS("apps", "Favorites App Icons Grid", "FAVORITES APPS"),
+    QUICK_TOGGLES("quick_toggles", "Quick System Toggles Bar", "QUICK TOGGLES"),
     NOTIFICATIONS("notifications", "Rolling Notifications Ticker", "NOTIFICATIONS"),
     AGENDA("agenda", "Meetings & Missed Calls List", "AGENDA & CALLS");
 
     companion object {
         fun fromId(id: String): HomeSection? = entries.find { it.id == id }
 
-        fun defaultOrder(): List<HomeSection> = listOf(HEADER, APPS, NOTIFICATIONS, AGENDA)
+        fun defaultOrder(): List<HomeSection> =
+            listOf(HEADER, APPS, QUICK_TOGGLES, NOTIFICATIONS, AGENDA)
 
         fun serialize(list: List<HomeSection>): String = list.joinToString(",") { it.id }
 
@@ -204,6 +225,24 @@ data class AppEntry(
     val packageName: String,
     val activityName: String
 )
+
+val NEON_PALETTE = listOf(
+    Color(0xFF00E5FF), // Cyan
+    Color(0xFF39FF14), // Neon Green
+    Color(0xFFFF1493), // Neon Pink
+    Color(0xFFFFD600), // Electric Yellow
+    Color(0xFF818CF8), // Indigo / Violet
+    Color(0xFFFF5252), // Electric Red
+    Color(0xFFFF9100), // Neon Orange
+    Color(0xFF00E676), // Spring Green
+    Color(0xFFE040FB), // Electric Purple
+    Color(0xFF1DE9B6)  // Teal
+)
+
+fun getNeonColorForPackage(packageName: String): Color {
+    val hash = kotlin.math.abs(packageName.hashCode())
+    return NEON_PALETTE[hash % NEON_PALETTE.size]
+}
 
 val AVAILABLE_HOME_APPS = listOf(
     AppChoice("whatsapp", "WhatsApp", Icons.Rounded.ChatBubbleOutline, listOf("com.whatsapp", "com.whatsapp.w4b"), Color(0xFF25D366)),
@@ -277,12 +316,26 @@ fun MinimalS25LauncherScreen() {
         mutableStateOf(LauncherFontSize.fromId(prefs.getString("font_size", "standard") ?: "standard"))
     }
 
+    // Dimension Adjusters: Icon Size, Section Padding X, Section Spacing Y
+    var iconSizeDp by remember {
+        mutableIntStateOf(prefs.getInt("icon_size_dp", 44))
+    }
+    var layoutPaddingXDp by remember {
+        mutableIntStateOf(prefs.getInt("layout_padding_x", 18))
+    }
+    var sectionSpacingYDp by remember {
+        mutableIntStateOf(prefs.getInt("section_spacing_y", 20))
+    }
+
     val activeFont = selectedFontFamily.composeFamily
     val fontScale = selectedFontSize.scale
 
-    // User Configuration from Settings
+    // User Configuration from Settings: Selected App IDs (Supports Curated + Any Installed App)
     var selectedAppIds by remember {
         mutableStateOf(prefs.getStringSet("home_apps", DEFAULT_SELECTED_APP_IDS) ?: DEFAULT_SELECTED_APP_IDS)
+    }
+    var showQuickTogglesSection by remember {
+        mutableStateOf(prefs.getBoolean("show_quick_toggles", true))
     }
     var showNotificationsSection by remember {
         mutableStateOf(prefs.getBoolean("show_notifs", true))
@@ -306,6 +359,16 @@ fun MinimalS25LauncherScreen() {
     var screenTimeText by remember { mutableStateOf("Calculating...") }
     var hasUsagePermission by remember { mutableStateOf(checkUsageStatsPermission(context)) }
 
+    // Quick System Toggles State
+    val wifiManager = remember { context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager }
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+    val notifManager = remember { context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager }
+    val btAdapter = remember { BluetoothAdapter.getDefaultAdapter() }
+
+    var isWifiEnabled by remember { mutableStateOf(wifiManager?.isWifiEnabled ?: false) }
+    var currentRingerMode by remember { mutableIntStateOf(audioManager?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL) }
+    var isBluetoothEnabled by remember { mutableStateOf(btAdapter?.isEnabled ?: false) }
+
     // Rolling notifications flow from S25NotificationService
     val incomingNotifications by S25NotificationService.notificationsFlow.collectAsState()
     var isNotificationAccessGranted by remember {
@@ -322,9 +385,9 @@ fun MinimalS25LauncherScreen() {
         agendaList = loadAgendaAndMissedCalls(context)
     }
 
-    // Gesture drag tracking
-    var totalDragX by remember { mutableFloatStateOf(0f) }
-    var totalDragY by remember { mutableFloatStateOf(0f) }
+    // Gesture tracking for double tap and swipe navigation
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var lastTapPos by remember { mutableStateOf(Offset.Zero) }
 
     // Section movement helper (Pull Up or Down)
     fun moveSection(section: HomeSection, direction: Int) {
@@ -368,10 +431,13 @@ fun MinimalS25LauncherScreen() {
         }
     }
 
-    // Refresh notification access status
+    // Refresh notification access status and toggles
     LaunchedEffect(isSettingsOpen) {
         isNotificationAccessGranted = S25NotificationService.isNotificationAccessGranted(context)
         agendaList = loadAgendaAndMissedCalls(context)
+        isWifiEnabled = wifiManager?.isWifiEnabled ?: false
+        currentRingerMode = audioManager?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
+        isBluetoothEnabled = btAdapter?.isEnabled ?: false
     }
 
     // Clock ticker
@@ -442,26 +508,59 @@ fun MinimalS25LauncherScreen() {
                 .fillMaxSize()
                 .pointerInput(isDrawerOpen || isSettingsOpen || isArrangeMode) {
                     if (!isDrawerOpen && !isSettingsOpen && !isArrangeMode) {
-                        detectDragGestures(
-                            onDragStart = {
-                                totalDragX = 0f
-                                totalDragY = 0f
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                totalDragX += dragAmount.x
-                                totalDragY += dragAmount.y
-                            },
-                            onDragEnd = {
-                                if (totalDragY < -100f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX)) {
-                                    isDrawerOpen = true
-                                } else if (totalDragX > 120f && kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY)) {
-                                    launchDialer(context)
-                                } else if (totalDragX < -120f && kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY)) {
-                                    launchCameraApp(context)
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downPos = down.position
+                            val downTime = System.currentTimeMillis()
+                            var currentPos = downPos
+                            var isDrag = false
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    break
+                                }
+                                currentPos = change.position
+                                val deltaX = currentPos.x - downPos.x
+                                val deltaY = currentPos.y - downPos.y
+                                if (kotlin.math.abs(deltaX) > 24f || kotlin.math.abs(deltaY) > 24f) {
+                                    isDrag = true
                                 }
                             }
-                        )
+
+                            val totalX = currentPos.x - downPos.x
+                            val totalY = currentPos.y - downPos.y
+
+                            if (isDrag) {
+                                // Directional Swipes
+                                if (totalY < -90f && kotlin.math.abs(totalY) > kotlin.math.abs(totalX)) {
+                                    // 1. Swipe UP -> Access All Apps Drawer
+                                    isDrawerOpen = true
+                                } else if (totalY > 90f && kotlin.math.abs(totalY) > kotlin.math.abs(totalX)) {
+                                    // 4. Swipe DOWN -> Access Notification Shade
+                                    expandNotificationShade(context)
+                                } else if (totalX > 110f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY)) {
+                                    // Swipe RIGHT -> Phone Dialer
+                                    launchDialer(context)
+                                } else if (totalX < -110f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY)) {
+                                    // Swipe LEFT -> Camera
+                                    launchCameraApp(context)
+                                }
+                            } else {
+                                // Tap Detected: Check for Double-Tap on Black Area to Lock Screen
+                                val tapInterval = downTime - lastTapTime
+                                val tapDistance = kotlin.math.hypot(downPos.x - lastTapPos.x, downPos.y - lastTapPos.y)
+                                if (tapInterval in 40..350 && tapDistance < 60f) {
+                                    // 5. Double Tap to Lock Phone
+                                    lockDevice(context)
+                                    lastTapTime = 0L
+                                } else {
+                                    lastTapTime = downTime
+                                    lastTapPos = downPos
+                                }
+                            }
+                        }
                     }
                 }
         ) {
@@ -470,8 +569,13 @@ fun MinimalS25LauncherScreen() {
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 22.dp, start = 18.dp, end = 18.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(22.dp)
+                    .padding(
+                        top = 22.dp,
+                        start = layoutPaddingXDp.dp,
+                        end = layoutPaddingXDp.dp,
+                        bottom = 16.dp
+                    ),
+                verticalArrangement = Arrangement.spacedBy(sectionSpacingYDp.dp)
             ) {
                 // Persistent Top Status Bar: Battery + Live Internet Speed + Icon-Only Controls
                 Row(
@@ -628,14 +732,40 @@ fun MinimalS25LauncherScreen() {
                                     Spacer(modifier = Modifier.height(10.dp))
                                 }
 
-                                Text(
-                                    text = timeString,
-                                    color = Color.White,
-                                    fontSize = (60 * fontScale).sp,
-                                    fontFamily = activeFont,
-                                    fontWeight = FontWeight.ExtraLight,
-                                    letterSpacing = (-2).sp
-                                )
+                                // Clock Row with Gemini AI Icon Button on the Right
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = timeString,
+                                        color = Color.White,
+                                        fontSize = (60 * fontScale).sp,
+                                        fontFamily = activeFont,
+                                        fontWeight = FontWeight.ExtraLight,
+                                        letterSpacing = (-2).sp
+                                    )
+
+                                    // Small Gemini AI Icon on Right Side of the Time
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black)
+                                            .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f), CircleShape)
+                                            .clickable { launchGemini(context) }
+                                            .padding(6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.AutoAwesome,
+                                            contentDescription = "Gemini AI Assistant",
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
 
                                 Spacer(modifier = Modifier.height(2.dp))
 
@@ -696,18 +826,48 @@ fun MinimalS25LauncherScreen() {
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
 
-                                Text(
-                                    text = "FAVORITES",
-                                    color = Color(0xFF555555),
-                                    fontSize = (11 * fontScale).sp,
-                                    fontFamily = activeFont,
-                                    letterSpacing = 1.4.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 10.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "FAVORITES",
+                                        color = Color(0xFF555555),
+                                        fontSize = (11 * fontScale).sp,
+                                        fontFamily = activeFont,
+                                        letterSpacing = 1.4.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "${selectedAppIds.size} APPS",
+                                        color = Color(0xFF444444),
+                                        fontSize = (10 * fontScale).sp,
+                                        fontFamily = activeFont
+                                    )
+                                }
 
-                                val activeApps = AVAILABLE_HOME_APPS.filter { it.id in selectedAppIds }
-                                val rows = activeApps.chunked(4)
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Resolve chosen apps: curated AppChoice or installed AppEntry
+                                val activeHomeAppList = remember(selectedAppIds, installedApps) {
+                                    val curatedMap = AVAILABLE_HOME_APPS.associateBy { it.id }
+                                    val installedMap = installedApps.associateBy { it.packageName }
+
+                                    selectedAppIds.mapNotNull { id ->
+                                        curatedMap[id] ?: installedMap[id]?.let { entry ->
+                                            AppChoice(
+                                                id = entry.packageName,
+                                                label = entry.label,
+                                                icon = Icons.Rounded.Apps,
+                                                candidatePackages = listOf(entry.packageName),
+                                                neonColor = getNeonColorForPackage(entry.packageName)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val rows = activeHomeAppList.chunked(4)
 
                                 rows.forEach { rowApps ->
                                     Row(
@@ -720,12 +880,63 @@ fun MinimalS25LauncherScreen() {
                                         rowApps.forEach { app ->
                                             MonochromeAppItem(
                                                 app = app,
+                                                iconSize = iconSizeDp.dp,
                                                 fontFamily = activeFont,
                                                 fontScale = fontScale,
-                                                onClick = { launchAppChoice(context, app) }
+                                                onClick = {
+                                                    recordAppLaunch(prefs, app.candidatePackages.firstOrNull() ?: app.id)
+                                                    launchAppChoice(context, app)
+                                                }
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        HomeSection.QUICK_TOGGLES -> {
+                            if (showQuickTogglesSection) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    if (isArrangeMode) {
+                                        SectionReorderBar(
+                                            position = index + 1,
+                                            section = section,
+                                            canMoveUp = canMoveUp,
+                                            canMoveDown = canMoveDown,
+                                            fontFamily = activeFont,
+                                            onMoveUp = { moveSection(section, -1) },
+                                            onMoveDown = { moveSection(section, 1) }
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+
+                                    // Quick System Toggles (Wi-Fi, Silent Mode, Bluetooth, Android Settings)
+                                    QuickTogglesBar(
+                                        isWifiEnabled = isWifiEnabled,
+                                        ringerMode = currentRingerMode,
+                                        isBluetoothEnabled = isBluetoothEnabled,
+                                        fontFamily = activeFont,
+                                        fontScale = fontScale,
+                                        onToggleWifi = {
+                                            toggleWifi(context, wifiManager)
+                                            isWifiEnabled = wifiManager?.isWifiEnabled ?: !isWifiEnabled
+                                        },
+                                        onCycleRinger = {
+                                            currentRingerMode = cycleRingerMode(context, audioManager, notifManager)
+                                        },
+                                        onToggleBluetooth = {
+                                            toggleBluetooth(context, btAdapter)
+                                            isBluetoothEnabled = btAdapter?.isEnabled ?: !isBluetoothEnabled
+                                        },
+                                        onOpenSettings = {
+                                            try {
+                                                context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                })
+                                            } catch (_: Exception) {
+                                            }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -943,7 +1154,7 @@ fun MinimalS25LauncherScreen() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Bottom Hint
+                // Bottom Hint (Swipe Up for Apps)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -980,11 +1191,16 @@ fun MinimalS25LauncherScreen() {
                 HomeScreenSettingsMenu(
                     sectionOrder = sectionOrder,
                     selectedAppIds = selectedAppIds,
+                    installedApps = installedApps,
+                    showQuickToggles = showQuickTogglesSection,
                     showNotifications = showNotificationsSection,
                     showAgenda = showAgendaSection,
                     isNotificationAccessGranted = isNotificationAccessGranted,
                     selectedFontFamily = selectedFontFamily,
                     selectedFontSize = selectedFontSize,
+                    iconSizeDp = iconSizeDp,
+                    layoutPaddingXDp = layoutPaddingXDp,
+                    sectionSpacingYDp = sectionSpacingYDp,
                     onMoveSection = { section, direction ->
                         moveSection(section, direction)
                     },
@@ -992,10 +1208,6 @@ fun MinimalS25LauncherScreen() {
                         val defaultList = HomeSection.defaultOrder()
                         sectionOrder = defaultList
                         prefs.edit().putString("section_order", HomeSection.serialize(defaultList)).apply()
-                    },
-                    onSetSectionOrderPreset = { preset ->
-                        sectionOrder = preset
-                        prefs.edit().putString("section_order", HomeSection.serialize(preset)).apply()
                     },
                     onSelectFontFamily = { family ->
                         selectedFontFamily = family
@@ -1005,6 +1217,18 @@ fun MinimalS25LauncherScreen() {
                         selectedFontSize = size
                         prefs.edit().putString("font_size", size.id).apply()
                     },
+                    onUpdateIconSize = { sizeDp ->
+                        iconSizeDp = sizeDp
+                        prefs.edit().putInt("icon_size_dp", sizeDp).apply()
+                    },
+                    onUpdateLayoutPaddingX = { paddingX ->
+                        layoutPaddingXDp = paddingX
+                        prefs.edit().putInt("layout_padding_x", paddingX).apply()
+                    },
+                    onUpdateSectionSpacingY = { spacingY ->
+                        sectionSpacingYDp = spacingY
+                        prefs.edit().putInt("section_spacing_y", spacingY).apply()
+                    },
                     onToggleApp = { appId ->
                         val updated = if (appId in selectedAppIds) {
                             if (selectedAppIds.size > 1) selectedAppIds - appId else selectedAppIds
@@ -1013,6 +1237,23 @@ fun MinimalS25LauncherScreen() {
                         }
                         selectedAppIds = updated
                         prefs.edit().putStringSet("home_apps", updated).apply()
+                    },
+                    onSelectAllApps = {
+                        val allIds = (AVAILABLE_HOME_APPS.map { it.id } + installedApps.map { it.packageName }).toSet()
+                        selectedAppIds = allIds
+                        prefs.edit().putStringSet("home_apps", allIds).apply()
+                    },
+                    onResetCuratedApps = {
+                        selectedAppIds = DEFAULT_SELECTED_APP_IDS
+                        prefs.edit().putStringSet("home_apps", DEFAULT_SELECTED_APP_IDS).apply()
+                    },
+                    onClearAllApps = {
+                        selectedAppIds = setOf("phone")
+                        prefs.edit().putStringSet("home_apps", selectedAppIds).apply()
+                    },
+                    onToggleQuickToggles = { enabled ->
+                        showQuickTogglesSection = enabled
+                        prefs.edit().putBoolean("show_quick_toggles", enabled).apply()
                     },
                     onToggleNotifications = { enabled ->
                         showNotificationsSection = enabled
@@ -1030,6 +1271,9 @@ fun MinimalS25LauncherScreen() {
                             arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.READ_CALL_LOG)
                         )
                     },
+                    onRequestDeviceAdmin = {
+                        lockDevice(context)
+                    },
                     onClose = { isSettingsOpen = false }
                 )
             }
@@ -1045,10 +1289,12 @@ fun MinimalS25LauncherScreen() {
                     query = searchQuery,
                     fontFamily = activeFont,
                     fontScale = fontScale,
+                    prefs = prefs,
                     onQueryChange = { searchQuery = it },
                     onAppClick = { app ->
                         isDrawerOpen = false
                         searchQuery = ""
+                        recordAppLaunch(prefs, app.packageName)
                         launchAppEntry(context, app)
                     },
                     onClose = {
@@ -1058,6 +1304,153 @@ fun MinimalS25LauncherScreen() {
                 )
             }
         }
+    }
+}
+
+// ---------------- QUICK SYSTEM TOGGLES BAR ----------------
+
+@Composable
+private fun QuickTogglesBar(
+    isWifiEnabled: Boolean,
+    ringerMode: Int,
+    isBluetoothEnabled: Boolean,
+    fontFamily: FontFamily,
+    fontScale: Float,
+    onToggleWifi: () -> Unit,
+    onCycleRinger: () -> Unit,
+    onToggleBluetooth: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val ringerIcon = when (ringerMode) {
+        AudioManager.RINGER_MODE_NORMAL -> Icons.Rounded.VolumeUp
+        AudioManager.RINGER_MODE_VIBRATE -> Icons.Rounded.Vibration
+        else -> Icons.Rounded.VolumeOff
+    }
+    val ringerLabel = when (ringerMode) {
+        AudioManager.RINGER_MODE_NORMAL -> "SOUND"
+        AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
+        else -> "SILENT"
+    }
+    val ringerColor = when (ringerMode) {
+        AudioManager.RINGER_MODE_NORMAL -> Color(0xFF39FF14)
+        AudioManager.RINGER_MODE_VIBRATE -> Color(0xFFFFD600)
+        else -> Color(0xFFFF5252)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Black)
+            .border(1.dp, Color(0xFF1E1E1E), RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceAround,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 1. Wi-Fi Toggle
+        QuickToggleItem(
+            icon = if (isWifiEnabled) Icons.Rounded.Wifi else Icons.Rounded.WifiOff,
+            label = "WI-FI",
+            statusText = if (isWifiEnabled) "ON" else "OFF",
+            activeColor = Color(0xFF00E5FF),
+            isActive = isWifiEnabled,
+            fontFamily = fontFamily,
+            fontScale = fontScale,
+            onClick = onToggleWifi
+        )
+
+        // 2. Silent / Sound Mode Cycle
+        QuickToggleItem(
+            icon = ringerIcon,
+            label = "MODE",
+            statusText = ringerLabel,
+            activeColor = ringerColor,
+            isActive = ringerMode != AudioManager.RINGER_MODE_SILENT,
+            fontFamily = fontFamily,
+            fontScale = fontScale,
+            onClick = onCycleRinger
+        )
+
+        // 3. Bluetooth Toggle
+        QuickToggleItem(
+            icon = if (isBluetoothEnabled) Icons.Rounded.Bluetooth else Icons.Rounded.BluetoothDisabled,
+            label = "BLUETOOTH",
+            statusText = if (isBluetoothEnabled) "ON" else "OFF",
+            activeColor = Color(0xFF818CF8),
+            isActive = isBluetoothEnabled,
+            fontFamily = fontFamily,
+            fontScale = fontScale,
+            onClick = onToggleBluetooth
+        )
+
+        // 4. Android Settings
+        QuickToggleItem(
+            icon = Icons.Rounded.Settings,
+            label = "SETTINGS",
+            statusText = "OPEN",
+            activeColor = Color(0xFFEEEEEE),
+            isActive = false,
+            fontFamily = fontFamily,
+            fontScale = fontScale,
+            onClick = onOpenSettings
+        )
+    }
+}
+
+@Composable
+private fun QuickToggleItem(
+    icon: ImageVector,
+    label: String,
+    statusText: String,
+    activeColor: Color,
+    isActive: Boolean,
+    fontFamily: FontFamily,
+    fontScale: Float,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color.Black)
+                .border(
+                    1.dp,
+                    if (isActive) activeColor.copy(alpha = 0.85f) else Color(0xFF333333),
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isActive) activeColor else Color(0xFF777777),
+                modifier = Modifier.size(17.dp)
+            )
+        }
+
+        Text(
+            text = label,
+            color = Color(0xFF777777),
+            fontSize = (9 * fontScale).sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Medium
+        )
+
+        Text(
+            text = statusText,
+            color = if (isActive) activeColor else Color(0xFF555555),
+            fontSize = (8 * fontScale).sp,
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -1178,11 +1571,12 @@ private fun SectionReorderBar(
     }
 }
 
-// ---------------- NEON GLOW APP ICON (SLEEK, COMPACT & UNTRIMMED) ----------------
+// ---------------- NEON GLOW APP ICON (ADJUSTABLE, SLEEK & UNTRIMMED) ----------------
 
 @Composable
 private fun MonochromeAppItem(
     app: AppChoice,
+    iconSize: Dp,
     fontFamily: FontFamily,
     fontScale: Float,
     onClick: () -> Unit
@@ -1199,7 +1593,7 @@ private fun MonochromeAppItem(
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(iconSize)
                 .drawBehind {
                     // Contained subtle neon halo (does not bleed out or get clipped)
                     drawCircle(
@@ -1216,11 +1610,11 @@ private fun MonochromeAppItem(
                 imageVector = app.icon,
                 contentDescription = app.label,
                 tint = app.neonColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size((iconSize.value * 0.46f).dp)
             )
         }
 
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = app.label,
@@ -1433,25 +1827,38 @@ private fun MinimalAgendaRow(
 private fun HomeScreenSettingsMenu(
     sectionOrder: List<HomeSection>,
     selectedAppIds: Set<String>,
+    installedApps: List<AppEntry>,
+    showQuickToggles: Boolean,
     showNotifications: Boolean,
     showAgenda: Boolean,
     isNotificationAccessGranted: Boolean,
     selectedFontFamily: LauncherFontFamily,
     selectedFontSize: LauncherFontSize,
+    iconSizeDp: Int,
+    layoutPaddingXDp: Int,
+    sectionSpacingYDp: Int,
     onMoveSection: (HomeSection, Int) -> Unit,
     onResetSectionOrder: () -> Unit,
-    onSetSectionOrderPreset: (List<HomeSection>) -> Unit,
     onSelectFontFamily: (LauncherFontFamily) -> Unit,
     onSelectFontSize: (LauncherFontSize) -> Unit,
+    onUpdateIconSize: (Int) -> Unit,
+    onUpdateLayoutPaddingX: (Int) -> Unit,
+    onUpdateSectionSpacingY: (Int) -> Unit,
     onToggleApp: (String) -> Unit,
+    onSelectAllApps: () -> Unit,
+    onResetCuratedApps: () -> Unit,
+    onClearAllApps: () -> Unit,
+    onToggleQuickToggles: (Boolean) -> Unit,
     onToggleNotifications: (Boolean) -> Unit,
     onToggleAgenda: (Boolean) -> Unit,
     onRequestNotificationAccess: () -> Unit,
     onRequestCalendarAndCallLog: () -> Unit,
+    onRequestDeviceAdmin: () -> Unit,
     onClose: () -> Unit
 ) {
     val activeFont = selectedFontFamily.composeFamily
     val fontScale = selectedFontSize.scale
+    var appSearchFilter by remember { mutableStateOf("") }
 
     Box(
         modifier = Modifier
@@ -1479,7 +1886,7 @@ private fun HomeScreenSettingsMenu(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Customize layout, typography & accounts",
+                        text = "Customize layout, dimensions & gestures",
                         color = Color(0xFF666666),
                         fontSize = (11 * fontScale).sp,
                         fontFamily = activeFont
@@ -1597,10 +2004,10 @@ private fun HomeScreenSettingsMenu(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // 2. TYPOGRAPHY (FONT FAMILY & FONT SIZE)
+            // 2. DIMENSIONS: ICON SIZE, LAYOUT WIDTH & SECTION SPACING
             // ========================================================
             Text(
-                text = "2. TYPOGRAPHY & FONT STYLES",
+                text = "2. ICON SIZE & SECTION DIMENSIONS",
                 color = Color(0xFF888888),
                 fontSize = (12 * fontScale).sp,
                 fontFamily = activeFont,
@@ -1617,7 +2024,114 @@ private fun HomeScreenSettingsMenu(
                     .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Font Family selector
+                // Icon Size
+                Text("Icon Size (Home Screen Grid):", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(36 to "36dp", 44 to "44dp", 52 to "52dp", 60 to "60dp").forEach { (size, label) ->
+                        val isSelected = iconSizeDp == size
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
+                            .clickable { onUpdateIconSize(size) }
+                            .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF888888),
+                                fontSize = (11 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                // Layout Width / Padding
+                Text("Layout Width (Edge Margin):", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(8 to "Wide (8dp)", 18 to "Standard (18dp)", 28 to "Narrow (28dp)").forEach { (pad, label) ->
+                        val isSelected = layoutPaddingXDp == pad
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
+                            .clickable { onUpdateLayoutPaddingX(pad) }
+                            .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF888888),
+                                fontSize = (10 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                // Section Spacing / Height
+                Text("Section Vertical Spacing:", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(12 to "Compact (12dp)", 20 to "Balanced (20dp)", 28 to "Spacious (28dp)").forEach { (sp, label) ->
+                        val isSelected = sectionSpacingYDp == sp
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0xFF333333), RoundedCornerShape(6.dp))
+                            .clickable { onUpdateSectionSpacingY(sp) }
+                            .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color(0xFF00E5FF) else Color(0xFF888888),
+                                fontSize = (10 * fontScale).sp,
+                                fontFamily = activeFont,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ========================================================
+            // 3. TYPOGRAPHY (FONT FAMILY & FONT SIZE)
+            // ========================================================
+            Text(
+                text = "3. TYPOGRAPHY & FONT STYLES",
+                color = Color(0xFF888888),
+                fontSize = (12 * fontScale).sp,
+                fontFamily = activeFont,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text("Font Family:", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1645,7 +2159,6 @@ private fun HomeScreenSettingsMenu(
                     }
                 }
 
-                // Font Size selector
                 Text("Font Size Scale:", color = Color(0xFFAAAAAA), fontSize = (11 * fontScale).sp, fontFamily = activeFont)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1677,34 +2190,126 @@ private fun HomeScreenSettingsMenu(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // 3. CHOOSE HOME APPS (NEON ICONS)
+            // 4. CHOOSE FAVORITES (ALL APPS OR CURATED)
             // ========================================================
-            Text(
-                text = "3. HOME SCREEN APPS",
-                color = Color(0xFF888888),
-                fontSize = (12 * fontScale).sp,
-                fontFamily = activeFont,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "4. FAVORITES APPS SELECTION",
+                    color = Color(0xFF888888),
+                    fontSize = (12 * fontScale).sp,
+                    fontFamily = activeFont,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "${selectedAppIds.size} Selected",
+                    color = Color(0xFF00E5FF),
+                    fontSize = (11 * fontScale).sp,
+                    fontFamily = activeFont,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Quick Batch Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF00E5FF), RoundedCornerShape(6.dp))
+                        .clickable(onClick = onSelectAllApps)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("ADD ALL APPS", color = Color(0xFF00E5FF), fontSize = (10 * fontScale).sp, fontFamily = activeFont, fontWeight = FontWeight.Bold)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF888888), RoundedCornerShape(6.dp))
+                        .clickable(onClick = onResetCuratedApps)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("CURATED (6)", color = Color.White, fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF444444), RoundedCornerShape(6.dp))
+                        .clickable(onClick = onClearAllApps)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("CLEAR", color = Color(0xFF888888), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Search input within settings to find apps quickly
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, Color(0xFF262626), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Rounded.Search, contentDescription = null, tint = Color(0xFF666666), modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                BasicTextField(
+                    value = appSearchFilter,
+                    onValueChange = { appSearchFilter = it },
+                    singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = (12 * fontScale).sp, fontFamily = activeFont),
+                    cursorBrush = SolidColor(Color.White),
+                    modifier = Modifier.fillMaxWidth(),
+                    decorationBox = { innerTextField ->
+                        if (appSearchFilter.isEmpty()) {
+                            Text("Filter apps to add...", color = Color(0xFF555555), fontSize = (12 * fontScale).sp, fontFamily = activeFont)
+                        }
+                        innerTextField()
+                    }
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(280.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
+                    .verticalScroll(rememberScrollState())
                     .padding(6.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                AVAILABLE_HOME_APPS.forEach { app ->
+                // 1. Curated Popular Apps
+                AVAILABLE_HOME_APPS.filter {
+                    appSearchFilter.isBlank() || it.label.contains(appSearchFilter, ignoreCase = true)
+                }.forEach { app ->
                     val isChecked = app.id in selectedAppIds
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { onToggleApp(app.id) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1735,15 +2340,78 @@ private fun HomeScreenSettingsMenu(
                         )
                     }
                 }
+
+                // 2. All Other Installed Apps
+                installedApps.filter { entry ->
+                    AVAILABLE_HOME_APPS.none { it.id == entry.packageName || entry.packageName in it.candidatePackages } &&
+                            (appSearchFilter.isBlank() || entry.label.contains(appSearchFilter, ignoreCase = true) || entry.packageName.contains(appSearchFilter, ignoreCase = true))
+                }.forEach { entry ->
+                    val isChecked = entry.packageName in selectedAppIds
+                    val neonColor = getNeonColorForPackage(entry.packageName)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onToggleApp(entry.packageName) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black)
+                                    .border(1.dp, if (isChecked) neonColor else Color(0xFF444444), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = entry.label.take(1).uppercase(Locale.getDefault()),
+                                    color = if (isChecked) neonColor else Color(0xFF777777),
+                                    fontSize = 10.sp,
+                                    fontFamily = activeFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = entry.label,
+                                    color = if (isChecked) Color.White else Color(0xFF777777),
+                                    fontSize = (12 * fontScale).sp,
+                                    fontFamily = activeFont,
+                                    fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                                Text(
+                                    text = entry.packageName,
+                                    color = Color(0xFF444444),
+                                    fontSize = (9 * fontScale).sp,
+                                    fontFamily = activeFont
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = if (isChecked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            contentDescription = if (isChecked) "Selected" else "Unselected",
+                            tint = if (isChecked) neonColor else Color(0xFF333333),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
 
             // ========================================================
-            // 4. NOTIFICATIONS & AGENDA SYNC PERMISSIONS
+            // 5. GESTURES & SYSTEM PERMISSIONS
             // ========================================================
             Text(
-                text = "4. SYSTEM PERMISSIONS & SYNC",
+                text = "5. GESTURES & SYSTEM INTEGRATIONS",
                 color = Color(0xFF888888),
                 fontSize = (12 * fontScale).sp,
                 fontFamily = activeFont,
@@ -1758,8 +2426,30 @@ private fun HomeScreenSettingsMenu(
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, Color(0xFF222222), RoundedCornerShape(8.dp))
                     .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Double tap to lock permission
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onRequestDeviceAdmin)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Double-Tap to Lock Screen", color = Color.White, fontSize = (12 * fontScale).sp, fontFamily = activeFont)
+                        Text("Device Admin Policy", color = Color(0xFF666666), fontSize = (10 * fontScale).sp, fontFamily = activeFont)
+                    }
+                    Text(
+                        text = "CONFIGURE",
+                        color = Color(0xFF00E5FF),
+                        fontSize = (11 * fontScale).sp,
+                        fontFamily = activeFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 // Notification permission
                 Row(
                     modifier = Modifier
@@ -1812,10 +2502,16 @@ private fun AppDrawerSheet(
     query: String,
     fontFamily: FontFamily,
     fontScale: Float,
+    prefs: SharedPreferences,
     onQueryChange: (String) -> Unit,
     onAppClick: (AppEntry) -> Unit,
     onClose: () -> Unit
 ) {
+    val context = LocalContext.current
+    val recentApps = remember(apps, query) {
+        if (query.isBlank()) getTopRecentAndFrequentApps(context, apps, prefs) else emptyList()
+    }
+
     val filteredApps = remember(apps, query) {
         if (query.isBlank()) apps else apps.filter {
             it.label.contains(query, ignoreCase = true) ||
@@ -1884,6 +2580,83 @@ private fun AppDrawerSheet(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // ---------------- RECENT & MOST OPENED 10 APPS (ONLY WHEN NOT SEARCHING) ----------------
+            if (query.isBlank() && recentApps.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.History,
+                            contentDescription = "Recent Apps",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "RECENT & FREQUENT (TOP 10)",
+                            color = Color(0xFF00E5FF),
+                            fontSize = (11 * fontScale).sp,
+                            fontFamily = fontFamily,
+                            letterSpacing = 1.2.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(recentApps, key = { "recent_" + it.packageName }) { app ->
+                        val neonColor = getNeonColorForPackage(app.packageName)
+                        Column(
+                            modifier = Modifier
+                                .width(64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onAppClick(app) }
+                                .padding(4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black)
+                                    .border(1.2.dp, neonColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = app.label.take(1).uppercase(Locale.getDefault()),
+                                    color = neonColor,
+                                    fontSize = (13 * fontScale).sp,
+                                    fontFamily = fontFamily,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = app.label,
+                                color = Color.White,
+                                fontSize = (10 * fontScale).sp,
+                                fontFamily = fontFamily,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1913,6 +2686,7 @@ private fun AppDrawerSheet(
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 items(filteredApps, key = { it.packageName + it.activityName }) { app ->
+                    val neonColor = getNeonColorForPackage(app.packageName)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1925,12 +2699,12 @@ private fun AppDrawerSheet(
                                 .size(34.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black)
-                                .border(1.dp, Color(0xFF262626), CircleShape),
+                                .border(1.dp, neonColor.copy(alpha = 0.7f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = app.label.take(1).uppercase(Locale.getDefault()),
-                                color = Color.White,
+                                color = neonColor,
                                 fontSize = (13 * fontScale).sp,
                                 fontFamily = fontFamily,
                                 fontWeight = FontWeight.Bold
@@ -1982,6 +2756,68 @@ private fun loadInstalledApps(context: Context): List<AppEntry> {
     }.distinctBy { it.packageName }.sortedBy { it.label.lowercase(Locale.getDefault()) }
 }
 
+private fun recordAppLaunch(prefs: SharedPreferences, packageName: String) {
+    try {
+        val current = prefs.getInt("launch_count_$packageName", 0)
+        prefs.edit()
+            .putInt("launch_count_$packageName", current + 1)
+            .putLong("last_launch_$packageName", System.currentTimeMillis())
+            .apply()
+    } catch (_: Exception) {
+    }
+}
+
+private fun getTopRecentAndFrequentApps(
+    context: Context,
+    installedApps: List<AppEntry>,
+    prefs: SharedPreferences
+): List<AppEntry> {
+    val installedMap = installedApps.associateBy { it.packageName }
+    val scores = mutableMapOf<String, Long>()
+
+    // 1. Check UsageStatsManager if permission is granted
+    if (checkUsageStatsPermission(context)) {
+        try {
+            val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }
+            val stats = usageStatsManager?.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                cal.timeInMillis,
+                System.currentTimeMillis()
+            )
+            stats?.forEach { stat ->
+                if (stat.packageName in installedMap) {
+                    val recencyScore = stat.lastTimeUsed / 1000L
+                    val usageScore = stat.totalTimeInForeground / 1000L
+                    scores[stat.packageName] = (scores[stat.packageName] ?: 0L) + recencyScore + usageScore
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    // 2. Add Launcher's internal launch tracking counts from SharedPreferences
+    for (app in installedApps) {
+        val launchCount = prefs.getInt("launch_count_${app.packageName}", 0)
+        val lastLaunch = prefs.getLong("last_launch_${app.packageName}", 0L)
+        if (launchCount > 0 || lastLaunch > 0L) {
+            scores[app.packageName] = (scores[app.packageName] ?: 0L) + (launchCount * 1_000_000L) + (lastLaunch / 1000L)
+        }
+    }
+
+    // Sort by highest score
+    val sortedRecent = scores.entries
+        .sortedByDescending { it.value }
+        .mapNotNull { installedMap[it.key] }
+        .take(10)
+
+    return if (sortedRecent.isNotEmpty()) {
+        sortedRecent
+    } else {
+        installedApps.take(10)
+    }
+}
+
 private fun launchAppEntry(context: Context, app: AppEntry) {
     try {
         val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
@@ -2018,6 +2854,146 @@ private fun launchAppChoice(context: Context, choice: AppChoice) {
     Toast.makeText(context, "${choice.label} is not installed", Toast.LENGTH_SHORT).show()
 }
 
+private fun launchGemini(context: Context) {
+    // 1. Try Google Gemini App
+    val geminiIntent = context.packageManager.getLaunchIntentForPackage("com.google.android.apps.bard")
+    if (geminiIntent != null) {
+        geminiIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(geminiIntent)
+        return
+    }
+
+    // 2. Try Assistant Action
+    try {
+        val assistIntent = Intent(Intent.ACTION_ASSIST).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(assistIntent)
+        return
+    } catch (_: Exception) {
+    }
+
+    // 3. Fallback to Gemini Web URL
+    try {
+        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://gemini.google.com")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(webIntent)
+    } catch (_: Exception) {
+        Toast.makeText(context, "Cannot open Gemini", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun expandNotificationShade(context: Context) {
+    try {
+        val statusBarService = context.getSystemService("statusbar")
+        val statusBarManager = Class.forName("android.app.StatusBarManager")
+        val method = statusBarManager.getMethod("expandNotificationsPanel")
+        method.invoke(statusBarService)
+    } catch (_: Exception) {
+        try {
+            val statusBarService = context.getSystemService("statusbar")
+            val statusBarManager = Class.forName("android.app.StatusBarManager")
+            val method = statusBarManager.getMethod("expand")
+            method.invoke(statusBarService)
+        } catch (_: Exception) {
+        }
+    }
+}
+
+private fun lockDevice(context: Context) {
+    val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager ?: return
+    val adminComponent = ComponentName(context, S25DeviceAdminReceiver::class.java)
+    if (dpm.isAdminActive(adminComponent)) {
+        try {
+            dpm.lockNow()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Lock failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    } else {
+        try {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Minimal S25 needs admin permission to lock the device upon double-tap."
+                )
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Cannot enable double-tap to lock: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+private fun toggleWifi(context: Context, wifiManager: WifiManager?) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        try {
+            context.startActivity(Intent(Settings.Panel.ACTION_WIFI).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+            try {
+                context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            } catch (_: Exception) {
+            }
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        wifiManager?.let {
+            it.isWifiEnabled = !it.isWifiEnabled
+        }
+    }
+}
+
+private fun cycleRingerMode(context: Context, audioManager: AudioManager?, notifManager: NotificationManager?): Int {
+    if (audioManager == null) return AudioManager.RINGER_MODE_NORMAL
+    val current = audioManager.ringerMode
+    val nextMode = when (current) {
+        AudioManager.RINGER_MODE_NORMAL -> AudioManager.RINGER_MODE_VIBRATE
+        AudioManager.RINGER_MODE_VIBRATE -> AudioManager.RINGER_MODE_SILENT
+        else -> AudioManager.RINGER_MODE_NORMAL
+    }
+
+    if (nextMode == AudioManager.RINGER_MODE_SILENT && notifManager != null && !notifManager.isNotificationPolicyAccessGranted) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+        }
+        return current
+    } else {
+        try {
+            audioManager.ringerMode = nextMode
+            return nextMode
+        } catch (_: Exception) {
+            return current
+        }
+    }
+}
+
+private fun toggleBluetooth(context: Context, adapter: BluetoothAdapter?) {
+    if (adapter == null) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        try {
+            if (adapter.isEnabled) adapter.disable() else adapter.enable()
+        } catch (_: Exception) {
+        }
+    }
+}
+
 private fun launchDialer(context: Context) {
     try {
         val intent = Intent(Intent.ACTION_DIAL).apply {
@@ -2047,39 +3023,6 @@ private fun checkUsageStatsPermission(context: Context): Boolean {
         appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), context.packageName)
     }
     return mode == AppOpsManager.MODE_ALLOWED
-}
-
-private fun computeTodayScreenTime(context: Context): String {
-    return try {
-        val usageStatsManager =
-            context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return "--"
-
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val stats = usageStatsManager.queryUsageStats(
-            UsageStatsManager.INTERVAL_DAILY,
-            cal.timeInMillis,
-            System.currentTimeMillis()
-        )
-
-        var totalMs = 0L
-        for (item in stats) {
-            totalMs += item.totalTimeInForeground
-        }
-
-        val totalMinutes = totalMs / (1000 * 60)
-        val hours = totalMinutes / 60
-        val mins = totalMinutes % 60
-
-        if (hours > 0) "${hours}h ${mins}m today" else "${mins}m today"
-    } catch (_: Exception) {
-        "Usage access needed"
-    }
 }
 
 // ---------------- TIME FORMATTER FOR CRYSTAL CLEAR AGENDAS ----------------
@@ -2320,7 +3263,7 @@ private fun loadAgendaAndMissedCalls(context: Context): List<AgendaItem> {
             }
         }
 
-        // 3. Also query CalendarContract.Events if Instances returned 0 events (catches events directly on Samsung OneUI)
+        // 3. Also query CalendarContract.Events if Instances returned 0 events
         if (result.count { it.type != AgendaType.MISSED_CALL } == 0) {
             try {
                 val eventsCursor = context.contentResolver.query(
