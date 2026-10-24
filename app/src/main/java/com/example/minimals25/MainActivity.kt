@@ -231,7 +231,7 @@ val NEON_PALETTE = listOf(
 )
 
 fun getNeonColorForPackage(packageName: String): Color {
-    val hash = kotlin.math.abs(packageName.hashCode())
+    val hash = (packageName.hashCode() and 0x7FFFFFFF)
     return NEON_PALETTE[hash % NEON_PALETTE.size]
 }
 
