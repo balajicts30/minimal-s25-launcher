@@ -3046,6 +3046,39 @@ private fun checkUsageStatsPermission(context: Context): Boolean {
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
+private fun computeTodayScreenTime(context: Context): String {
+    return try {
+        val usageStatsManager =
+            context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager ?: return "--"
+
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val stats = usageStatsManager.queryUsageStats(
+            UsageStatsManager.INTERVAL_DAILY,
+            cal.timeInMillis,
+            System.currentTimeMillis()
+        )
+
+        var totalMs = 0L
+        for (item in stats) {
+            totalMs += item.totalTimeInForeground
+        }
+
+        val totalMinutes = totalMs / (1000 * 60)
+        val hours = totalMinutes / 60
+        val mins = totalMinutes % 60
+
+        if (hours > 0) "${hours}h ${mins}m today" else "${mins}m today"
+    } catch (_: Exception) {
+        "Usage access needed"
+    }
+}
+
 // ---------------- TIME FORMATTER FOR CRYSTAL CLEAR AGENDAS ----------------
 
 private fun formatMeetingTime(beginMs: Long, endMs: Long): String {
